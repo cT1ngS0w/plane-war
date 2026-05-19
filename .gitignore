@@ -1,0 +1,7 @@
+build/
+*.exe
+*.o
+*.obj
+_deps/
+compile_commands.json
+.claude/

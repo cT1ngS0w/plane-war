@@ -1,0 +1,22 @@
+{
+    "configurations": [
+        {
+            "name": "MinGW",
+            "includePath": [
+                "${workspaceFolder}/src",
+                "${workspaceFolder}/build/_deps/ftxui-src/include"
+            ],
+            "defines": [
+                "FTXUI_MICROSOFT_TERMINAL_FALLBACK",
+                "UNICODE",
+                "_UNICODE"
+            ],
+            "compilerPath": "D:/mingw/x86_64-15.2.0-release-win32-seh-ucrt-rt_v13-rev1/mingw64/bin/g++.exe",
+            "cStandard": "c17",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "gcc-x64",
+            "compileCommands": "${workspaceFolder}/build/compile_commands.json"
+        }
+    ],
+    "version": 4
+}
