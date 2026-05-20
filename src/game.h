@@ -12,8 +12,9 @@ constexpr int kPlayerStartX = kFieldWidth / 2;
 constexpr int kPlayerStartY = kFieldHeight - 3;
 
 constexpr int kMaxLives        = 5;
-constexpr int kMaxPlayerBullets = 12;
+constexpr int kMaxPlayerBullets = 20;
 constexpr int kMaxEnemyBullets   = 40;
+constexpr int kMaxWingmen        = 2;
 constexpr int kMaxEnemies        = 10;
 constexpr int kMaxPowerUps       = 3;
 constexpr int kMaxObstacles      = 6;
@@ -32,18 +33,32 @@ constexpr int kEnemyW  = 3, kEnemyH  = 2;
 
 // ---------- 枚举 ----------
 enum class CellType { Empty, Player, Enemy, PlayerBullet, EnemyBullet,
-                      Border, Obstacle, PowerUp, Boss, Particle };
+                      Border, Obstacle, PowerUp, Boss, Particle, Wingman };
 enum class Dir       { kNone, kUp, kDown, kLeft, kRight };
-enum class GameState { kMenu, kPlaying, kPaused, kGameOver, kLevelClear };
+enum class GameState { kMenu, kSelect, kPlaying, kPaused, kGameOver, kLevelClear };
 enum class PowerUpType { Health, FireRate, DualShot };
+enum class PlaneType { kFighter, kBomber, kStealth };
 
 // ---------- 精灵 ----------
 struct SpriteCell { int dx, dy; char ch; };
 
-// 玩家：3x2 战斗机
-inline constexpr SpriteCell kPlayerSprite[] = {
-    { 0,-1,'^'}, {-1,0,'/'}, {0,0,'H'}, {1,0,'\\'},
+// 玩家精灵 — 三种战机
+// Fighter "Valkyrie" 迅风战机：敏捷型 3x2
+inline constexpr SpriteCell kFighterSprite[] = {
+    { 0,-1,'^'}, {-1,0,'/'}, {0,0,'F'}, {1,0,'\\'},
 };
+// Bomber "Fortress" 堡垒重舰：重装型 5x2
+inline constexpr SpriteCell kBomberSprite[] = {
+    {-2,0,'['}, {-1,0,'#'}, {0,0,'B'}, {1,0,'#'}, {2,0,']'},
+    {-2,1,'/'}, {-1,1,'='}, {0,1,'='}, {1,1,'='}, {2,1,'\\'},
+};
+// Stealth "Phantom" 暗影战机：刺客型 3x2
+inline constexpr SpriteCell kStealthSprite[] = {
+    { 0,-1,'V'}, {-1,0,'<'}, {0,0,'S'}, {1,0,'>'},
+};
+constexpr int kFighterSpriteCnt = sizeof(kFighterSprite) / sizeof(SpriteCell);
+constexpr int kBomberSpriteCnt  = sizeof(kBomberSprite)  / sizeof(SpriteCell);
+constexpr int kStealthSpriteCnt = sizeof(kStealthSprite) / sizeof(SpriteCell);
 // 敌机：3x2
 inline constexpr SpriteCell kEnemySprite[] = {
     {-1,0,'\\'}, {0,0,'M'}, {1,0,'/'}, {0,1,'v'},
@@ -73,6 +88,7 @@ struct Player {
     int x = kPlayerStartX, y = kPlayerStartY;
     int lives = 3;
     int shoot_cd = 0;
+    PlaneType plane_type = PlaneType::kFighter;
 };
 
 struct PowerUp {
@@ -85,6 +101,13 @@ struct PowerUp {
 struct Obstacle {
     int x, y;
     int speed_counter = 0;
+};
+
+struct Wingman {
+    int x, y;
+    bool active = false;
+    int shoot_timer = 0;
+    int phase = 0;  // offset for formation
 };
 
 struct Particle {
@@ -116,15 +139,28 @@ public:
     int level()        const { return level_; }
     int lives()        const { return player_.lives; }
     int kills()        const { return total_kills_; }
+    int kills_needed()  const { return 10 + (level_ - 1) * 2; }
     int boss_hp()      const { return boss_.hp; }
     int boss_max_hp()  const { return boss_.max_hp; }
     bool boss_alive()  const { return boss_.active; }
+    bool boss_dying()  const { return boss_death_timer_ > 0; }
     int fire_boost()   const { return fire_rate_boost_; }
     int dual_shot()    const { return dual_shot_; }
+
+    PlaneType plane_type()    const { return player_.plane_type; }
+    float ultimate_charge()   const { return ultimate_charge_; }
+    int   ultimate_duration() const { return ultimate_duration_; }
+    int   invincible()        const { return invincible_frames_; }
+    int   wingmen_active()    const { return wingmen_count_; }
+    bool  ultimate_ready()    const { return ultimate_charge_ >= 1.0f; }
 
     void StartGame();
     void NextLevel();
     void TogglePause();
+    void EnterSelect();
+    void BackToMenu();
+    void SelectPlane(int idx);
+    void ActivateUltimate();
 
 private:
     void SpawnEnemy();
@@ -149,11 +185,16 @@ private:
     void SpawnPowerUp();
     void SpawnExplosion(int x, int y);
     void UpdateParticles();
+    void UpdateWingmen();
+    bool IsWingmanCell(int x, int y) const;
 
     bool IsPlayerCell(int x, int y) const;
     bool IsEnemyCell(const Enemy& e, int x, int y) const;
     bool IsBossCell(int x, int y) const;
     bool IsObstacle(int x, int y) const;
+
+    const SpriteCell* PlayerSprite() const;
+    int PlayerSpriteCount() const;
 
     GameState state_ = GameState::kMenu;
     Player    player_;
@@ -162,6 +203,7 @@ private:
     std::vector<PowerUp>  powerups_;
     std::vector<Obstacle>  obstacles_;
     std::vector<Particle> particles_;
+    std::vector<Wingman>  wingmen_;
     Boss      boss_;
 
     int score_ = 0, high_score_ = 0;
@@ -173,7 +215,23 @@ private:
     int obstacle_spawn_timer_ = 80;
     int powerup_spawn_timer_  = 200;
     bool boss_spawned_        = false;
+    int  boss_death_timer_    = 0;
 
     int fire_rate_boost_ = 0;
     int dual_shot_       = 0;
+    int wingmen_count_   = 0;
+
+    PlaneType selected_plane_ = PlaneType::kFighter;
+    float ultimate_charge_    = 0.0f;
+    int ultimate_duration_    = 0;
+    int invincible_frames_    = 0;
+
+    static constexpr float kUltChargePassive = 1.0f / 1800.0f;
+    static constexpr float kUltChargePerKill = 1.0f / 12.0f;
+    static constexpr int   kUltFighterDur    = 90;
+    static constexpr int   kUltBomberDur     = 120;
+    static constexpr int   kUltStealthWingmenDur = 300;
+    static constexpr int   kWingmanShootInterval  = 15;
+    static constexpr int   kWingmanOffsetX = 2;
+    static constexpr int   kWingmanOffsetY = 1;
 };

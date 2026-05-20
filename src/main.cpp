@@ -20,11 +20,28 @@ static std::recursive_mutex    g_mutex;
 static std::atomic<bool>       g_quit{false};
 static Dir                     g_cur_dir  = Dir::kNone;
 static std::atomic<bool>       g_shooting{false};
+static std::atomic<int>        g_anim_frame{0};
+static int                     g_select_idx = 0;
 
 // ===================================================================
 Color CellColor(CellType ct) {
     switch (ct) {
-        case CellType::Player:       return Color(Color::Cyan);
+        case CellType::Player: {
+            PlaneType pt;
+            int inv;
+            {
+                std::lock_guard<std::recursive_mutex> lk(g_mutex);
+                pt = g_game.plane_type();
+                inv = g_game.invincible();
+            }
+            if (inv > 0 && ((g_anim_frame.load() / 4) & 1))
+                return Color(Color::White);
+            switch (pt) {
+                case PlaneType::kFighter: return Color(Color::Cyan);
+                case PlaneType::kBomber:  return Color(Color::Orange1);
+                case PlaneType::kStealth: return Color(Color::Magenta);
+            }
+        }
         case CellType::Enemy:        return Color(Color::Red);
         case CellType::PlayerBullet: return Color(Color::Yellow);
         case CellType::EnemyBullet:  return Color(Color::RedLight);
@@ -33,6 +50,7 @@ Color CellColor(CellType ct) {
         case CellType::PowerUp:      return Color(Color::GreenLight);
         case CellType::Boss:         return Color(Color::Orange1);
         case CellType::Particle:     return Color(Color::Yellow);
+        case CellType::Wingman:      return Color(Color::MagentaLight);
         default:                     return Color(Color::Default);
     }
 }
@@ -66,6 +84,7 @@ Element BuildColoredField() {
                     case CellType::PowerUp:      tk = 'U'; break;
                     case CellType::Boss:         tk = 'Z'; break;
                     case CellType::Particle:     tk = 'X'; break;
+                    case CellType::Wingman:      tk = 'W'; break;
                     default:                     tk = ' '; break;
                 }
             }
@@ -78,7 +97,7 @@ Element BuildColoredField() {
                                         prev_type == 'B' ? CellType::Border :
                                         prev_type == 'O' ? CellType::Obstacle :
                                         prev_type == 'U' ? CellType::PowerUp :
-                                        prev_type == 'Z' ? CellType::Boss : prev_type == 'X' ? CellType::Particle : CellType::Empty);
+                                        prev_type == 'Z' ? CellType::Boss : prev_type == 'X' ? CellType::Particle : prev_type == 'W' ? CellType::Wingman : CellType::Empty);
                     segments.push_back(text(run) | color(c));
                     run.clear();
                 }
@@ -142,7 +161,7 @@ Element BuildSidePanel() {
     }
     {
         std::ostringstream kl;
-        kl << g_game.kills() << " / " << kKillsPerLevel;
+        kl << g_game.kills() << " / " << g_game.kills_needed();
         rows.push_back(row("Kills:", kl.str(), Color::White));
     }
 
@@ -166,18 +185,61 @@ Element BuildSidePanel() {
     }
 
     // Boss 血条
-    if (g_game.boss_alive()) {
+    if (g_game.boss_alive() || g_game.boss_dying()) {
         rows.push_back(text(""));
         rows.push_back(header("BOSS", Color::Orange1));
         rows.push_back(sep_line());
 
-        int hp = g_game.boss_hp(), mx = g_game.boss_max_hp();
-        int w = 14, bars = mx > 0 ? hp * w / mx : 0;
-        std::string bar;
-        for (int i = 0; i < w; ++i) bar += (i < bars) ? '\xDB' : '\xB0';
-        std::ostringstream hpstr;
-        hpstr << hp << "/" << mx;
-        rows.push_back(row("HP:", bar + " " + hpstr.str(), Color::Orange1));
+        if (g_game.boss_alive()) {
+            int hp = g_game.boss_hp(), mx = g_game.boss_max_hp();
+            int w = 14, bars = mx > 0 ? hp * w / mx : 0;
+            std::string bar;
+            for (int i = 0; i < w; ++i) bar += (i < bars) ? '\xDB' : '\xB0';
+            std::ostringstream hpstr;
+            hpstr << hp << "/" << mx;
+            rows.push_back(row("HP:", bar + " " + hpstr.str(), Color::Orange1));
+        } else {
+            rows.push_back(row("", "DEFEATED!", Color::Yellow));
+        }
+    }
+
+    // 终极技能
+    {
+        float charge = g_game.ultimate_charge();
+        int ult_dur = g_game.ultimate_duration();
+        int inv = g_game.invincible();
+        rows.push_back(text(""));
+        rows.push_back(header("ULTIMATE", Color::Magenta));
+        rows.push_back(sep_line());
+
+        const char* skill_name = "???";
+        switch (g_game.plane_type()) {
+            case PlaneType::kFighter: skill_name = "Bullet Storm"; break;
+            case PlaneType::kBomber:  skill_name = "Iron Shield"; break;
+            case PlaneType::kStealth: skill_name = "Wingmen"; break;
+        }
+        rows.push_back(row("Skill:", skill_name, Color::MagentaLight));
+
+        if (ult_dur > 0 || inv > 0) {
+            int remaining = ult_dur > 0 ? ult_dur : inv;
+            int sec = remaining / 30;
+            std::ostringstream ss; ss << sec << "s";
+            rows.push_back(row("Active:", ss.str(), Color::Yellow));
+            if (g_game.wingmen_active() > 0) {
+                std::ostringstream wss; wss << "x" << g_game.wingmen_active();
+                rows.push_back(row("Wingmen:", wss.str(), Color::MagentaLight));
+            }
+        } else if (charge >= 1.0f) {
+            rows.push_back(row("", "[E] ACTIVATE!", Color::Yellow));
+        } else {
+            int w = 14;
+            int bars = static_cast<int>(charge * w);
+            std::string bar;
+            for (int i = 0; i < w; ++i) bar += (i < bars) ? '\xDB' : '\xB0';
+            std::ostringstream ss;
+            ss << bar << " " << static_cast<int>(charge * 100) << "%";
+            rows.push_back(row("Charge:", ss.str(), Color::Magenta));
+        }
     }
 
     // 道具图例
@@ -193,12 +255,28 @@ Element BuildSidePanel() {
 
 // ===================================================================
 Element BuildMenuScreen() {
+    static const std::vector<Color> kWavePalette = {
+        Color::Blue,       Color::Cyan,        Color::CyanLight,
+        Color::GreenLight, Color::Yellow,      Color::Orange1,
+        Color::RedLight,   Color::Magenta,     Color::MagentaLight,
+        Color::BlueLight,  Color::Green,       Color::YellowLight,
+    };
+    int frame = g_anim_frame.load(std::memory_order_relaxed);
+    int speed = frame / 12;
+
+    auto logo_line = [&](int idx, const std::string& s, bool bld) {
+        int ci = (idx * 3 + speed) % static_cast<int>(kWavePalette.size());
+        Element e = text(s) | color(kWavePalette[ci]);
+        if (bld) e = e | bold;
+        return e;
+    };
+
     auto logo = vbox({
-        text(R"(   ____  _               __      __        ___  )") | color(Color::Cyan) | bold,
-        text(R"(  / __ \/ /___ _____     / /___ _/ /_____  / _ | )") | color(Color::Cyan) | bold,
-        text(R"( / /_/ / / __ `/ __ \   / / __ `/ __/ __ \/ __ | )") | color(Color::Cyan),
-        text(R"( / ____/ / /_/ / / / /  / / /_/ / /_/ /_/ / /_/ | )") | color(Color::Cyan),
-        text(R"(/_/   /_/\__,_/_/ /_/  /_/\__,_/\__/\____/____/  )") | color(Color::Cyan),
+        logo_line(0, R"(   ____  _               __      __        ___  )", true),
+        logo_line(1, R"(  / __ \/ /___ _____     / /___ _/ /_____  / _ | )", true),
+        logo_line(2, R"( / /_/ / / __ `/ __ \   / / __ `/ __/ __ \/ __ | )", false),
+        logo_line(3, R"( / ____/ / /_/ / / / /  / / /_/ / /_/ /_/ / /_/ | )", false),
+        logo_line(4, R"(/_/   /_/\__,_/_/ /_/  /_/\__,_/\__/\____/____/  )", false),
     }) | center;
 
     auto title = text("  >>  PLANE WAR  <<  ") | bold | color(Color::Yellow) | center;
@@ -217,13 +295,58 @@ Element BuildMenuScreen() {
                   text(""), credit_row }) | center;
 }
 
+Element BuildSelectScreen() {
+    Color themes[3] = {Color::Cyan, Color::Orange1, Color::Magenta};
+
+    auto arrow_r = [](bool sel) { return std::string(sel ? " \xE2\x96\xB6" : "  "); };
+    auto arrow_l = [](bool sel) { return std::string(sel ? "\xE2\x97\x80 " : "  "); };
+
+    std::vector<Element> rows;
+    rows.push_back(text(""));
+    rows.push_back(text("  >>  SELECT YOUR PLANE  <<") | bold | color(Color::Yellow));
+    rows.push_back(text(""));
+    rows.push_back(text("  W / S : switch    ENTER : confirm    Q : back") | dim);
+    rows.push_back(text(""));
+    rows.push_back(text(""));
+
+    for (int i = 0; i < 3; ++i) {
+        const char* sprites_top[3] = {"  ^  ", "[#B#]", "  V  "};
+        const char* sprites_bot[3] = {" /F\\ ", "/===\\", " <S> "};
+        const char* names[3] = {"Valkyrie", "Fortress", "Phantom"};
+        const char* cnames[3] = {"\xE8\xBF\x85\xE9\xA3\x8E\xE6\x88\x98\xE6\x9C\xBA",
+                                  "\xE5\xA0\xA1\xE5\x9E\x92\xE9\x87\x8D\xE8\x88\xB0",
+                                  "\xE6\x9A\x97\xE5\xBD\xB1\xE6\x88\x98\xE6\x9C\xBA"};
+        const char* descs[3] = {
+            "\xE2\x80\xA2 Agile \xE2\x80\xA2 Speedy  \xE2\x9A\xA1 Bullet Storm",
+            "\xE2\x80\xA2 Armored \xE2\x80\xA2 Tank   \xE2\x9A\xA1 Iron Shield",
+            "\xE2\x80\xA2 Tactical \xE2\x80\xA2 Drones \xE2\x9A\xA1 Wingmen",
+        };
+
+        bool sel = (i == g_select_idx);
+        std::string line1 = arrow_r(sel) + sprites_top[i] + arrow_l(sel)
+                          + "  " + names[i] + "  " + cnames[i] + "  " + descs[i];
+        std::string line2 = arrow_r(sel) + sprites_bot[i] + arrow_l(sel);
+
+        Element e1 = text(line1) | color(sel ? themes[i] : Color::Grey50);
+        Element e2 = text(line2) | color(sel ? themes[i] : Color::Grey50);
+        if (sel) { e1 = e1 | bold; e2 = e2 | bold; }
+        else     { e1 = e1 | dim;  e2 = e2 | dim;  }
+
+        rows.push_back(e1);
+        rows.push_back(e2);
+        rows.push_back(text(""));
+    }
+
+    return vbox(std::move(rows));
+}
+
 Element BuildPlayingScreen() {
     std::lock_guard<std::recursive_mutex> lock(g_mutex);
 
     std::ostringstream info;
     info << "  Level " << g_game.level()
          << "  |  Score " << g_game.score()
-         << "  |  Kills " << g_game.kills() << "/" << kKillsPerLevel;
+         << "  |  Kills " << g_game.kills() << "/" << g_game.kills_needed();
 
     auto info_bar = text(info.str()) | bold | color(Color::Yellow) | center;
 
@@ -237,12 +360,39 @@ Element BuildPlayingScreen() {
         std::ostringstream ss;
         ss << "  BOSS  [" << bar << "]  " << hp << "/" << mx;
         boss_bar = text(ss.str()) | color(Color::Orange1) | bold | center;
+    } else if (g_game.boss_dying()) {
+        boss_bar = text("  *** BOSS DEFEATED! ***  ") | bold | color(Color::Yellow) | center | blink;
+    }
+
+    // 终极技能条
+    Element ult_bar = text("");
+    {
+        int ult_dur = g_game.ultimate_duration();
+        int inv = g_game.invincible();
+        float charge = g_game.ultimate_charge();
+        if (ult_dur > 0 || inv > 0) {
+            int remaining = ult_dur > 0 ? ult_dur : inv;
+            int sec = remaining / 30;
+            std::ostringstream ss;
+            ss << "  \xE2\x9A\xA1 ULT ACTIVE: " << sec << "s  ";
+            ult_bar = text(ss.str()) | bold | color(Color::Yellow) | center;
+        } else if (charge >= 1.0f) {
+            ult_bar = text("  [E] ULTIMATE READY!  ") | bold | color(Color::Yellow) | center;
+        } else {
+            int w = 22;
+            int bars = static_cast<int>(charge * w);
+            std::string bar;
+            for (int i = 0; i < w; ++i) bar += (i < bars) ? '\xDB' : '\xB0';
+            std::ostringstream ss;
+            ss << "  ULT [" << bar << "] " << static_cast<int>(charge * 100) << "%  ";
+            ult_bar = text(ss.str()) | color(Color::Magenta) | center;
+        }
     }
 
     auto field    = BuildColoredField();
     auto side     = BuildSidePanel();
 
-    auto main = vbox({ info_bar, text(""), boss_bar, text(""), field }) | center;
+    auto main = vbox({ info_bar, text(""), boss_bar, text(""), ult_bar, text(""), field }) | center;
     return hbox({ main, separator() | color(Color::Blue), side }) | center;
 }
 
@@ -281,7 +431,7 @@ Element BuildGameOverScreen() {
     auto stats = text(ss.str()) | color(Color::Yellow) | bold | center;
 
     auto sep   = text("  ───────────────────────────────────────  ") | color(Color::Grey30) | center;
-    auto hint  = text("  [R] Retry    [Q] Quit  ") | color(Color::White) | bold | center;
+    auto hint  = text("  [R] Retry    [M] Menu    [Q] Quit  ") | color(Color::White) | bold | center;
 
     return vbox({ text(""), boom, text(""), over1, over2, text(""),
                   stats, text(""), sep, text(""), hint }) | center;
@@ -290,26 +440,36 @@ Element BuildGameOverScreen() {
 Element BuildLevelClearScreen() {
     std::lock_guard<std::recursive_mutex> lock(g_mutex);
 
-    auto stars = vbox({
-        text(R"(   *   .   *   .   *  )") | color(Color::Yellow),
-        text(R"( .   *   .   *   .   *)") | color(Color::GreenLight),
-        text(R"(   *   .   *   .   *  )") | color(Color::Yellow),
+    int frame = g_anim_frame.load(std::memory_order_relaxed);
+    int wave = (frame / 8) % 3;
+    Color star_colors[3] = {Color::Yellow, Color::GreenLight, Color::CyanLight};
+
+    auto trophy = vbox({
+        text(R"(  *  *  *  *  *  *  *  *  *  *  *  )") | color(star_colors[(wave+0)%3]) | bold,
+        text(R"(   *   *   *   *   *   *   *   *   )") | color(star_colors[(wave+1)%3]) | bold,
+        text(R"(  *   V I C T O R Y !   *  *  *  )") | color(Color::Yellow) | bold,
+        text(R"(   *   *   *   *   *   *   *   *   )") | color(star_colors[(wave+2)%3]) | bold,
+        text(R"(  *  *  *  *  *  *  *  *  *  *  *  )") | color(star_colors[(wave+0)%3]) | bold,
     }) | center;
 
-    std::ostringstream ss;
-    ss << "  LEVEL " << g_game.level() << " CLEAR!  ";
-    auto title = text(ss.str()) | bold | color(Color::Green) | center | borderDouble;
+    auto title = text("  LEVEL " + std::to_string(g_game.level()) + " CLEAR!  ") | bold | color(Color::Green) | center | borderDouble;
 
-    std::ostringstream ss2;
-    ss2 << "  Score: " << g_game.score() << "    Boss Defeated!";
-    auto score_line = text(ss2.str()) | color(Color::Yellow) | bold | center;
+    std::ostringstream sc;
+    sc << "  Score: " << g_game.score()
+       << "    Kills: " << g_game.kills()
+       << "    Lives: " << g_game.lives();
+    auto stats = text(sc.str()) | color(Color::White) | bold | center;
 
-    auto bonus = text("  +" + std::to_string(kBossScoreBonus * g_game.level()) + " BONUS") | color(Color::Orange1) | center;
+    std::ostringstream bn;
+    bn << "  +" << (kBossScoreBonus * g_game.level()) << " BOSS BONUS  ";
+    auto bonus = text(bn.str()) | color(Color::Orange1) | bold | center;
 
-    auto hint = text("  [ENTER] Next Level    [R] Restart  ") | bold | center;
+    auto sep   = text("  ───────────────────────────────────────  ") | color(Color::Grey30) | center;
+    auto hint  = text("  [ENTER] Next Level    [R] Retry    [M] Menu  ") | bold | center;
 
-    return vbox({ text(""), stars, text(""), title, text(""),
-                  score_line, text(""), bonus, text(""), hint }) | center;
+    return vbox({ text(""), trophy, text(""), title, text(""),
+                  stats, text(""), bonus,
+                  text(""), sep, text(""), hint }) | center;
 }
 
 Element BuildUI() {
@@ -320,6 +480,7 @@ Element BuildUI() {
     }
     switch (st) {
         case GameState::kMenu:       return BuildMenuScreen();
+        case GameState::kSelect:     return BuildSelectScreen();
         case GameState::kPlaying:    return BuildPlayingScreen();
         case GameState::kPaused:     return BuildPausedScreen();
         case GameState::kGameOver:   return BuildGameOverScreen();
@@ -345,8 +506,25 @@ int main() {
         }
         if (st == GameState::kMenu) {
             if (event == Event::Return) {
-                { std::lock_guard<std::recursive_mutex> lk(g_mutex); g_game.StartGame(); }
+                { std::lock_guard<std::recursive_mutex> lk(g_mutex); g_game.EnterSelect(); }
+                return true;
+            }
+            return false;
+        }
+        if (st == GameState::kSelect) {
+            if (event == Event::ArrowUp || event == Event::Character('w') || event == Event::Character('W')) {
+                g_select_idx = (g_select_idx + 2) % 3; return true;
+            }
+            if (event == Event::ArrowDown || event == Event::Character('s') || event == Event::Character('S')) {
+                g_select_idx = (g_select_idx + 1) % 3; return true;
+            }
+            if (event == Event::Return) {
+                { std::lock_guard<std::recursive_mutex> lk(g_mutex); g_game.SelectPlane(g_select_idx); g_game.StartGame(); }
                 g_cur_dir = Dir::kNone; g_shooting = false; return true;
+            }
+            if (event == Event::Character('q') || event == Event::Character('Q')) {
+                { std::lock_guard<std::recursive_mutex> lk(g_mutex); g_game.BackToMenu(); }
+                return true;
             }
             return false;
         }
@@ -354,6 +532,10 @@ int main() {
             if (event == Event::Character('r') || event == Event::Character('R')) {
                 { std::lock_guard<std::recursive_mutex> lk(g_mutex); g_game.StartGame(); }
                 g_cur_dir = Dir::kNone; g_shooting = false; return true;
+            }
+            if (event == Event::Character('m') || event == Event::Character('M')) {
+                { std::lock_guard<std::recursive_mutex> lk(g_mutex); g_game.BackToMenu(); }
+                return true;
             }
             if (event == Event::Return && st == GameState::kLevelClear) {
                 { std::lock_guard<std::recursive_mutex> lk(g_mutex); g_game.NextLevel(); }
@@ -363,6 +545,11 @@ int main() {
         }
         if (event == Event::Character('p') || event == Event::Character('P')) {
             std::lock_guard<std::recursive_mutex> lk(g_mutex); g_game.TogglePause(); return true;
+        }
+        if (st == GameState::kPlaying) {
+            if (event == Event::Character('e') || event == Event::Character('E')) {
+                std::lock_guard<std::recursive_mutex> lk(g_mutex); g_game.ActivateUltimate(); return true;
+            }
         }
         if (st != GameState::kPlaying) return false;
         if (event == Event::Custom) return false;
@@ -391,6 +578,7 @@ int main() {
                 std::lock_guard<std::recursive_mutex> lk(g_mutex);
                 g_game.Update(g_cur_dir, g_shooting);
             }
+            g_anim_frame.fetch_add(1, std::memory_order_relaxed);
             screen.Post(Event::Custom);
             auto elapsed = steady_clock::now() - t0;
             if (elapsed < kFrame) std::this_thread::sleep_for(kFrame - elapsed);

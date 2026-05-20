@@ -16,11 +16,13 @@ Game::Game() {
     enemies_.reserve(kMaxEnemies);
     powerups_.reserve(kMaxPowerUps);
     obstacles_.reserve(kMaxObstacles);
+    wingmen_.reserve(kMaxWingmen);
 }
 
 // ===================================================================
 void Game::StartGame() {
     player_          = Player{};
+    player_.plane_type = selected_plane_;
     bullets_.clear();
     enemies_.clear();
     powerups_.clear();
@@ -37,6 +39,12 @@ void Game::StartGame() {
     boss_spawned_   = false;
     fire_rate_boost_ = 0;
     dual_shot_       = 0;
+    ultimate_charge_   = 0.0f;
+    ultimate_duration_ = 0;
+    invincible_frames_ = 0;
+    boss_death_timer_  = 0;
+    wingmen_.clear();
+    wingmen_count_   = 0;
     state_ = GameState::kPlaying;
 }
 
@@ -57,6 +65,12 @@ void Game::NextLevel() {
     boss_spawned_      = false;
     fire_rate_boost_   = 0;
     dual_shot_         = 0;
+    ultimate_charge_   = 0.0f;
+    ultimate_duration_ = 0;
+    invincible_frames_ = 0;
+    boss_death_timer_  = 0;
+    wingmen_.clear();
+    wingmen_count_   = 0;
     state_ = GameState::kPlaying;
 }
 
@@ -65,10 +79,65 @@ void Game::TogglePause() {
     else if (state_ == GameState::kPaused) state_ = GameState::kPlaying;
 }
 
+void Game::EnterSelect() { state_ = GameState::kSelect; }
+void Game::BackToMenu() { state_ = GameState::kMenu; }
+
+void Game::SelectPlane(int idx) {
+    switch (idx) {
+        case 0: selected_plane_ = PlaneType::kFighter; break;
+        case 1: selected_plane_ = PlaneType::kBomber;  break;
+        case 2: selected_plane_ = PlaneType::kStealth; break;
+    }
+}
+
+void Game::ActivateUltimate() {
+    if (ultimate_charge_ < 1.0f || ultimate_duration_ > 0) return;
+    ultimate_charge_ = 0.0f;
+
+    switch (player_.plane_type) {
+        case PlaneType::kFighter:
+            ultimate_duration_ = kUltFighterDur;
+            break;
+        case PlaneType::kBomber:
+            invincible_frames_ = kUltBomberDur;
+            break;
+        case PlaneType::kStealth:
+            ultimate_duration_ = kUltStealthWingmenDur;
+            wingmen_.clear();
+            wingmen_count_ = 2;
+            for (int i = 0; i < 2; ++i) {
+                int wx = player_.x + (i == 0 ? -kWingmanOffsetX : kWingmanOffsetX);
+                int wy = player_.y - kWingmanOffsetY;
+                wingmen_.push_back({wx, wy, true, 0, i});
+            }
+            break;
+    }
+}
+
+const SpriteCell* Game::PlayerSprite() const {
+    switch (player_.plane_type) {
+        case PlaneType::kFighter: return kFighterSprite;
+        case PlaneType::kBomber:  return kBomberSprite;
+        case PlaneType::kStealth: return kStealthSprite;
+    }
+    return kFighterSprite;
+}
+
+int Game::PlayerSpriteCount() const {
+    switch (player_.plane_type) {
+        case PlaneType::kFighter: return kFighterSpriteCnt;
+        case PlaneType::kBomber:  return kBomberSpriteCnt;
+        case PlaneType::kStealth: return kStealthSpriteCnt;
+    }
+    return kFighterSpriteCnt;
+}
+
 // ===================================================================
 bool Game::IsPlayerCell(int x, int y) const {
-    for (auto& c : kPlayerSprite)
-        if (player_.x + c.dx == x && player_.y + c.dy == y) return true;
+    auto* spr = PlayerSprite();
+    int cnt = PlayerSpriteCount();
+    for (int i = 0; i < cnt; ++i)
+        if (player_.x + spr[i].dx == x && player_.y + spr[i].dy == y) return true;
     return false;
 }
 bool Game::IsEnemyCell(const Enemy& e, int x, int y) const {
@@ -88,6 +157,12 @@ bool Game::IsObstacle(int x, int y) const {
     return false;
 }
 
+bool Game::IsWingmanCell(int x, int y) const {
+    for (auto& w : wingmen_)
+        if (w.active && w.x == x && w.y == y) return true;
+    return false;
+}
+
 CellType Game::GetCellType(int x, int y) const {
     if (x < 0 || x >= kFieldWidth || y < 0 || y >= kFieldHeight) return CellType::Empty;
     if (state_ != GameState::kMenu && player_.lives > 0 && IsPlayerCell(x, y))
@@ -104,6 +179,7 @@ CellType Game::GetCellType(int x, int y) const {
     for (auto& p : particles_)
         if (p.x == x && p.y == y) return CellType::Particle;
     if (IsObstacle(x, y)) return CellType::Obstacle;
+    if (IsWingmanCell(x, y)) return CellType::Wingman;
     return CellType::Empty;
 }
 
@@ -129,8 +205,10 @@ void Game::CheckPowerUpCollect() {
     for (auto& p : powerups_) {
         if (!p.active) continue;
         bool hit = false;
-        for (auto& c : kPlayerSprite)
-            if (player_.x + c.dx == p.x && player_.y + c.dy == p.y) { hit = true; break; }
+        auto* spr = PlayerSprite();
+        int cnt = PlayerSpriteCount();
+        for (int i = 0; i < cnt; ++i)
+            if (player_.x + spr[i].dx == p.x && player_.y + spr[i].dy == p.y) { hit = true; break; }
         if (hit) {
             p.active = false;
             switch (p.type) {
@@ -171,6 +249,37 @@ void Game::UpdateParticles() {
         std::remove_if(particles_.begin(), particles_.end(),
                        [](const Particle& p) { return p.life <= 0; }),
         particles_.end());
+}
+
+// ===================================================================
+void Game::UpdateWingmen() {
+    if (wingmen_count_ <= 0) return;
+    if (ultimate_duration_ <= 0) {
+        wingmen_.clear();
+        wingmen_count_ = 0;
+        return;
+    }
+    for (auto& w : wingmen_) {
+        if (!w.active) continue;
+        w.x = player_.x + (w.phase == 0 ? -kWingmanOffsetX : kWingmanOffsetX);
+        w.y = player_.y - kWingmanOffsetY;
+
+        if (w.shoot_timer > 0) --w.shoot_timer;
+        if (w.shoot_timer <= 0) {
+            for (auto& b : bullets_) {
+                if (!b.active) {
+                    b = Bullet{w.x, w.y - 1, 0, -1, true, true};
+                    w.shoot_timer = kWingmanShootInterval;
+                    goto next_wingman;
+                }
+            }
+            if (static_cast<int>(bullets_.size()) < kMaxPlayerBullets + kMaxEnemyBullets + 30) {
+                bullets_.push_back(Bullet{w.x, w.y - 1, 0, -1, true, true});
+            }
+            w.shoot_timer = kWingmanShootInterval;
+        }
+        next_wingman:;
+    }
 }
 
 // ===================================================================
@@ -244,13 +353,16 @@ void Game::BossShootSpread() {
 
 void Game::BossDie() {
     boss_.active = false;
-    // 大爆炸特效
+    // 大型爆炸粒子
     for (auto& c : kBossSprite)
         SpawnExplosion(boss_.x + c.dx, boss_.y + c.dy);
+    for (int i = 0; i < 20; ++i)
+        SpawnExplosion(boss_.x - 3 + rand() % 7, boss_.y - 1 + rand() % 4);
     score_ += kBossScoreBonus * level_;
     for (auto& b : bullets_)
         if (!b.from_player) b.active = false;
-    state_ = GameState::kLevelClear;
+    boss_death_timer_ = 50;
+    // state stays kPlaying — death animation plays out via Update()
 }
 
 void Game::MoveBoss() {
@@ -273,12 +385,48 @@ void Game::Update(Dir move_dir, bool shooting) {
     if (state_ != GameState::kPlaying) return;
     ++frame_count_;
 
+    // Boss 死亡动画
+    if (boss_death_timer_ > 0) {
+        --boss_death_timer_;
+        if (boss_death_timer_ % 4 == 0)
+            SpawnExplosion(boss_.x - 2 + rand() % 5, boss_.y - 1 + rand() % 3);
+        if (boss_death_timer_ % 10 == 0)
+            for (int i = 0; i < 6; ++i)
+                SpawnExplosion(boss_.x - 3 + rand() % 7, boss_.y - 2 + rand() % 5);
+        if (fire_rate_boost_ > 0) --fire_rate_boost_;
+        if (dual_shot_ > 0) --dual_shot_;
+        if (ultimate_duration_ > 0) --ultimate_duration_;
+        if (invincible_frames_ > 0) --invincible_frames_;
+        MoveBullets();
+        MovePowerUps();
+        MoveObstacles();
+        CheckPowerUpCollect();
+        UpdateParticles();
+        UpdateWingmen();
+        if (boss_death_timer_ <= 0)
+            state_ = GameState::kLevelClear;
+        return;
+    }
+
     if (fire_rate_boost_ > 0) --fire_rate_boost_;
     if (dual_shot_ > 0) --dual_shot_;
 
+    // 终极技能充能：时间被动积累
+    if (ultimate_duration_ <= 0 && ultimate_charge_ < 1.0f) {
+        ultimate_charge_ += kUltChargePassive;
+        if (ultimate_charge_ > 1.0f) ultimate_charge_ = 1.0f;
+    }
+    if (ultimate_duration_ > 0) --ultimate_duration_;
+    if (invincible_frames_ > 0) --invincible_frames_;
+
     MovePlayer(move_dir);
 
-    int cd = (fire_rate_boost_ > 0) ? 3 : kPlayerShootCooldown;
+    int cd = kPlayerShootCooldown;
+    if (ultimate_duration_ > 0 && player_.plane_type == PlaneType::kFighter)
+        cd = 2;
+    else if (fire_rate_boost_ > 0)
+        cd = 3;
+
     if (shooting && player_.shoot_cd <= 0) {
         FirePlayerBullet();
         player_.shoot_cd = cd;
@@ -290,6 +438,7 @@ void Game::Update(Dir move_dir, bool shooting) {
     MoveObstacles();
     CheckPowerUpCollect();
     UpdateParticles();
+    UpdateWingmen();
 
     if (!boss_.active) {
         if (enemy_spawn_timer_ <= 0) {
@@ -328,21 +477,31 @@ void Game::MovePlayer(Dir d) {
     }
     if (nx >= 1 && nx < kFieldWidth - 1 && ny >= 1 && ny < kFieldHeight) {
         bool blocked = false;
-        for (auto& c : kPlayerSprite)
-            if (IsObstacle(nx + c.dx, ny + c.dy)) { blocked = true; break; }
+        auto* spr = PlayerSprite();
+        int cnt = PlayerSpriteCount();
+        for (int i = 0; i < cnt; ++i)
+            if (IsObstacle(nx + spr[i].dx, ny + spr[i].dy)) { blocked = true; break; }
         if (!blocked) { player_.x = nx; player_.y = ny; }
     }
 }
 
 void Game::FirePlayerBullet() {
-    auto spawn_at = [&](int bx) {
+    auto spawn_at = [&](int bx, int bdx, int bdy) {
         for (auto& b : bullets_)
-            if (!b.active) { b = Bullet{bx, player_.y - 2, 0, -1, true, true}; return; }
+            if (!b.active) { b = Bullet{bx, player_.y - 2, bdx, bdy, true, true}; return; }
         if (static_cast<int>(bullets_.size()) < kMaxPlayerBullets + kMaxEnemyBullets + 30)
-            bullets_.push_back(Bullet{bx, player_.y - 2, 0, -1, true, true});
+            bullets_.push_back(Bullet{bx, player_.y - 2, bdx, bdy, true, true});
     };
-    if (dual_shot_ > 0) { spawn_at(player_.x - 1); spawn_at(player_.x + 1); }
-    spawn_at(player_.x);
+
+    if (ultimate_duration_ > 0 && player_.plane_type == PlaneType::kFighter) {
+        spawn_at(player_.x,  0, -1);
+        spawn_at(player_.x, -1, -1);
+        spawn_at(player_.x,  1, -1);
+    } else if (dual_shot_ > 0) {
+        spawn_at(player_.x - 1, 0, -1);
+        spawn_at(player_.x + 1, 0, -1);
+    }
+    spawn_at(player_.x, 0, -1);
 }
 
 void Game::SpawnEnemy() {
@@ -410,7 +569,16 @@ void Game::CheckCollisions() {
                 if (b.x == e.x + c.dx && b.y == e.y + c.dy) { b.active = false; goto hit; }
             continue;
         hit:
-            if (--e.hp <= 0) { e.active = false; score_ += kScorePerKill * level_; ++total_kills_; SpawnExplosion(e.x, e.y); }
+            if (--e.hp <= 0) {
+                e.active = false;
+                score_ += kScorePerKill * level_;
+                ++total_kills_;
+                SpawnExplosion(e.x, e.y);
+                if (ultimate_charge_ < 1.0f && ultimate_duration_ <= 0) {
+                    ultimate_charge_ += kUltChargePerKill;
+                    if (ultimate_charge_ > 1.0f) ultimate_charge_ = 1.0f;
+                }
+            }
         }
     }
     // 玩家子弹 vs Boss
@@ -423,6 +591,7 @@ void Game::CheckCollisions() {
         if (!b.active || b.from_player) continue;
         if (IsPlayerCell(b.x, b.y)) {
             b.active = false;
+            if (invincible_frames_ > 0) continue;
             if (--player_.lives <= 0) { state_ = GameState::kGameOver; if (score_ > high_score_) high_score_ = score_; return; }
         }
     }
@@ -432,6 +601,7 @@ void Game::CheckCollisions() {
         for (auto& c : kEnemySprite)
             if (IsPlayerCell(e.x + c.dx, e.y + c.dy)) {
                 e.active = false;
+                if (invincible_frames_ > 0) break;
                 if (--player_.lives <= 0) { state_ = GameState::kGameOver; if (score_ > high_score_) high_score_ = score_; return; }
                 break;
             }
@@ -440,6 +610,7 @@ void Game::CheckCollisions() {
     if (boss_.active) {
         for (auto& c : kBossSprite)
             if (IsPlayerCell(boss_.x + c.dx, boss_.y + c.dy)) {
+                if (invincible_frames_ > 0) break;
                 if (--player_.lives <= 0) { state_ = GameState::kGameOver; if (score_ > high_score_) high_score_ = score_; return; }
                 break;
             }
@@ -447,7 +618,7 @@ void Game::CheckCollisions() {
 }
 
 void Game::CheckLevelProgress() {
-    if (total_kills_ >= kKillsPerLevel && !boss_spawned_) {
+    if (total_kills_ >= kills_needed() && !boss_spawned_) {
         boss_spawned_ = true;
         for (auto& e : enemies_) e.active = false;
         for (auto& b : bullets_) if (!b.from_player) b.active = false;
@@ -525,12 +696,22 @@ std::string Game::Render() const {
         }
     }
 
+    // 僚机（玩家上方）
+    for (auto& w : wingmen_) {
+        if (!w.active) continue;
+        int cx = w.x, cy = w.y;
+        if (cx >= 0 && cx < kFieldWidth && cy >= 0 && cy < kFieldHeight)
+            grid[cy][cx] = 'o';
+    }
+
     // 玩家（最上层）
     if (player_.lives > 0) {
-        for (auto& c : kPlayerSprite) {
-            int cx = player_.x + c.dx, cy = player_.y + c.dy;
+        auto* spr = PlayerSprite();
+        int cnt = PlayerSpriteCount();
+        for (int i = 0; i < cnt; ++i) {
+            int cx = player_.x + spr[i].dx, cy = player_.y + spr[i].dy;
             if (cx >= 0 && cx < kFieldWidth && cy >= 0 && cy < kFieldHeight)
-                grid[cy][cx] = c.ch;
+                grid[cy][cx] = spr[i].ch;
         }
     }
 
