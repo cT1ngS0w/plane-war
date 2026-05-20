@@ -36,7 +36,7 @@ enum class CellType { Empty, Player, Enemy, PlayerBullet, EnemyBullet,
                       Border, Obstacle, PowerUp, Boss, Particle, Wingman };
 enum class Dir       { kNone, kUp, kDown, kLeft, kRight };
 enum class GameState { kMenu, kSelect, kPlaying, kPaused, kGameOver, kLevelClear };
-enum class PowerUpType { Health, FireRate, DualShot };
+enum class PowerUpType { Health, FireRate, DualShot, Shield, Bomb, Magnet };
 enum class PlaneType { kFighter, kBomber, kStealth };
 
 // ---------- 精灵 ----------
@@ -136,9 +136,11 @@ public:
 
     GameState state() const { return state_; }
     int score()        const { return score_; }
+    int high_score()   const { return high_score_; }
     int level()        const { return level_; }
     int lives()        const { return player_.lives; }
     int kills()        const { return total_kills_; }
+    int combo()        const { return combo_count_; }
     int kills_needed()  const { return 10 + (level_ - 1) * 2; }
     int boss_hp()      const { return boss_.hp; }
     int boss_max_hp()  const { return boss_.max_hp; }
@@ -176,6 +178,7 @@ private:
     void CheckCollisions();
     void CheckLevelProgress();
     void CheckPowerUpCollect();
+    void SaveHighScore();
 
     void SpawnBoss();
     void BossShootCircle();
@@ -208,6 +211,7 @@ private:
 
     int score_ = 0, high_score_ = 0;
     int level_ = 1, total_kills_ = 0;
+    int combo_count_ = 0, combo_timer_ = 0;
 
     int enemy_spawn_timer_    = 0;
     int enemy_speed_          = 12;
@@ -220,6 +224,8 @@ private:
     int fire_rate_boost_ = 0;
     int dual_shot_       = 0;
     int wingmen_count_   = 0;
+    bool shield_active_  = false;
+    int magnet_timer_    = 0;
 
     PlaneType selected_plane_ = PlaneType::kFighter;
     float ultimate_charge_    = 0.0f;

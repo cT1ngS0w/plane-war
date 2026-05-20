@@ -42,15 +42,15 @@ Color CellColor(CellType ct) {
             }
             break;
         }
-        case CellType::Enemy:        return Color(Color::Red);
-        case CellType::PlayerBullet: return Color(Color::Yellow);
-        case CellType::EnemyBullet:  return Color(Color::RedLight);
-        case CellType::Border:       return Color(Color::Blue);
+        case CellType::Enemy:        return Color(Color::RGB(255,40,40));
+        case CellType::PlayerBullet: return Color(Color::RGB(255,255,80));
+        case CellType::EnemyBullet:  return Color(Color::RGB(255,100,100));
+        case CellType::Border:       return Color(Color::RGB(60,120,255));
         case CellType::Obstacle:     return Color(Color::Grey50);
-        case CellType::PowerUp:      return Color(Color::GreenLight);
-        case CellType::Boss:         return Color(Color::Orange1);
-        case CellType::Particle:     return Color(Color::Yellow);
-        case CellType::Wingman:      return Color(Color::MagentaLight);
+        case CellType::PowerUp:      return Color(Color::RGB(80,255,80));
+        case CellType::Boss:         return Color(Color::RGB(255,140,0));
+        case CellType::Particle:     return Color(Color::RGB(255,220,30));
+        case CellType::Wingman:      return Color(Color::RGB(200,120,255));
         default:                     return Color(Color::Default);
     }
     return Color(Color::Default);
@@ -155,6 +155,10 @@ Element BuildSidePanel() {
         rows.push_back(row("Score:", sc.str(), Color::Yellow));
     }
     {
+        std::ostringstream hs; hs << g_game.high_score();
+        rows.push_back(row("Best:", hs.str(), Color::Orange1));
+    }
+    {
         std::ostringstream hp;
         for (int i = 0; i < g_game.lives(); ++i) hp << "\xE2\x99\xA5 ";
         for (int i = g_game.lives(); i < kMaxLives; ++i) hp << "\xE2\x97\x8B ";
@@ -247,9 +251,12 @@ Element BuildSidePanel() {
     rows.push_back(text(""));
     rows.push_back(header("ITEMS", Color::Grey50));
     rows.push_back(sep_line());
-    rows.push_back(row("+", "Health  +1", Color::Red));
+    rows.push_back(row("+", "Health +1", Color::Red));
     rows.push_back(row("~", "Fire Rate", Color::GreenLight));
     rows.push_back(row("=", "Dual Shot", Color::Yellow));
+    rows.push_back(row("O", "Shield", Color::CyanLight));
+    rows.push_back(row("!", "Bomb", Color::Orange1));
+    rows.push_back(row("M", "Magnet", Color::MagentaLight));
 
     return vbox(rows) | size(WIDTH, GREATER_THAN, 24);
 }
@@ -257,10 +264,10 @@ Element BuildSidePanel() {
 // ===================================================================
 Element BuildMenuScreen() {
     static const std::vector<Color> kWavePalette = {
-        Color::Blue,       Color::Cyan,        Color::CyanLight,
-        Color::GreenLight, Color::Yellow,      Color::Orange1,
-        Color::RedLight,   Color::Magenta,     Color::MagentaLight,
-        Color::BlueLight,  Color::Green,       Color::YellowLight,
+        Color::RGB(0,100,255),   Color::RGB(0,200,255),  Color::RGB(0,255,200),
+        Color::RGB(100,255,100),  Color::RGB(255,255,0),  Color::RGB(255,180,0),
+        Color::RGB(255,80,80),    Color::RGB(255,0,200),  Color::RGB(200,100,255),
+        Color::RGB(100,150,255),  Color::RGB(0,255,150),  Color::RGB(200,255,0),
     };
     int frame = g_anim_frame.load(std::memory_order_relaxed);
     int speed = frame / 12;
@@ -286,7 +293,7 @@ Element BuildMenuScreen() {
     auto sep   = text("  ───────────────────────────────────────  ") | color(Color::Blue) | center;
     auto ctrl  = text("  WASD / Arrow : Move    Space : Shoot  ") | center;
     auto ctrl2 = text("  P : Pause    R : Restart  ") | center;
-    auto items = text("  Collect  +Health  ~FireRate  =DualShot  ") | center;
+    auto items = text("  +Health  ~FireRate  =DualShot  OShield  !Bomb  MMagnet  ") | center;
 
     auto credit = text("MADE BY 沈皓然") | color(Color::Grey50) | dim;
     auto credit_row = hbox({ filler(), credit });
@@ -349,8 +356,10 @@ Element BuildPlayingScreen() {
 
     std::ostringstream info;
     info << "Lv" << g_game.level()
-         << " | " << g_game.score()
-         << " | " << g_game.kills() << "/" << g_game.kills_needed();
+         << " | " << g_game.score();
+    if (g_game.combo() > 1)
+        info << " x" << g_game.combo();
+    info << " | " << g_game.kills() << "/" << g_game.kills_needed();
     auto info_bar = text(info.str()) | bold | color(Color::Yellow);
 
     // Boss 血条
@@ -431,8 +440,8 @@ Element BuildGameOverScreen() {
     auto over2 = text("  MISSION FAILED  ") | color(Color::RedLight) | center;
 
     std::ostringstream ss;
-    ss << "  Score: " << g_game.score() << "    Level: " << g_game.level()
-       << "    Kills: " << g_game.kills();
+    ss << "  Score: " << g_game.score() << "    Best: " << g_game.high_score()
+       << "    Level: " << g_game.level() << "    Kills: " << g_game.kills();
     auto stats = text(ss.str()) | color(Color::Yellow) | bold | center;
 
     auto sep   = text("  ───────────────────────────────────────  ") | color(Color::Grey30) | center;

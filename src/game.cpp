@@ -1,9 +1,11 @@
 #include "game.h"
+#include "audio.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <ctime>
+#include <fstream>
 #include <sstream>
 
 #ifndef M_PI
@@ -17,6 +19,9 @@ Game::Game() {
     powerups_.reserve(kMaxPowerUps);
     obstacles_.reserve(kMaxObstacles);
     wingmen_.reserve(kMaxWingmen);
+    // 加载最高分
+    std::ifstream hs("highscore.txt");
+    if (hs) hs >> high_score_;
 }
 
 // ===================================================================
@@ -45,6 +50,10 @@ void Game::StartGame() {
     boss_death_timer_  = 0;
     wingmen_.clear();
     wingmen_count_   = 0;
+    shield_active_   = false;
+    magnet_timer_    = 0;
+    combo_count_     = 0;
+    combo_timer_     = 0;
     state_ = GameState::kPlaying;
 }
 
@@ -93,6 +102,7 @@ void Game::SelectPlane(int idx) {
 void Game::ActivateUltimate() {
     if (ultimate_charge_ < 1.0f || ultimate_duration_ > 0) return;
     ultimate_charge_ = 0.0f;
+    g_audio.play(Sfx::Ultimate);
 
     switch (player_.plane_type) {
         case PlaneType::kFighter:
@@ -194,9 +204,12 @@ void Game::SpawnPowerUp() {
     if (static_cast<int>(powerups_.size()) >= kMaxPowerUps) return;
     int r = rand() % 10;
     PowerUpType t;
-    if (r < 4)      t = PowerUpType::Health;
-    else if (r < 7) t = PowerUpType::FireRate;
-    else            t = PowerUpType::DualShot;
+    if (r < 3)      t = PowerUpType::Health;
+    else if (r < 5) t = PowerUpType::FireRate;
+    else if (r < 7) t = PowerUpType::DualShot;
+    else if (r < 8) t = PowerUpType::Shield;
+    else if (r < 9) t = PowerUpType::Bomb;
+    else            t = PowerUpType::Magnet;
     int px = 2 + rand() % (kFieldWidth - 6);
     powerups_.push_back({px, 0, t, true, 0});
 }
@@ -211,6 +224,7 @@ void Game::CheckPowerUpCollect() {
             if (player_.x + spr[i].dx == p.x && player_.y + spr[i].dy == p.y) { hit = true; break; }
         if (hit) {
             p.active = false;
+            g_audio.play(Sfx::PowerUp);
             switch (p.type) {
                 case PowerUpType::Health:
                     if (player_.lives < kMaxLives) ++player_.lives;
@@ -220,6 +234,19 @@ void Game::CheckPowerUpCollect() {
                     break;
                 case PowerUpType::DualShot:
                     dual_shot_ = 750;
+                    break;
+                case PowerUpType::Shield:
+                    shield_active_ = true;
+                    break;
+                case PowerUpType::Bomb:
+                    for (auto& e : enemies_) {
+                        if (e.active) { score_ += kScorePerKill * level_; ++total_kills_; SpawnExplosion(e.x, e.y); e.active = false; }
+                    }
+                    for (auto& b : bullets_)
+                        if (b.active && !b.from_player) b.active = false;
+                    break;
+                case PowerUpType::Magnet:
+                    magnet_timer_ = 300;
                     break;
             }
         }
@@ -287,7 +314,16 @@ void Game::MovePowerUps() {
     for (auto& p : powerups_) {
         if (!p.active) continue;
         ++p.speed_counter;
-        if (p.speed_counter >= 8) { p.speed_counter = 0; ++p.y; }
+        int spd = 8;
+        if (magnet_timer_ > 0 && abs(p.x - player_.x) + abs(p.y - player_.y) < 12) spd = 2;
+        if (p.speed_counter >= spd) {
+            p.speed_counter = 0;
+            ++p.y;
+            if (magnet_timer_ > 0) {
+                if (p.x < player_.x) ++p.x;
+                else if (p.x > player_.x) --p.x;
+            }
+        }
         if (p.y >= kFieldHeight) p.active = false;
     }
 }
@@ -319,6 +355,7 @@ void Game::SpawnBoss() {
     boss_.move_dir = 1;
     boss_.shoot_timer   = 35;
     boss_.pattern_timer = 0;
+    g_audio.play(Sfx::BossAlert);
 }
 
 void Game::BossShootCircle() {
@@ -410,6 +447,9 @@ void Game::Update(Dir move_dir, bool shooting) {
 
     if (fire_rate_boost_ > 0) --fire_rate_boost_;
     if (dual_shot_ > 0) --dual_shot_;
+    if (combo_timer_ > 0) --combo_timer_;
+    else combo_count_ = 0;
+    if (magnet_timer_ > 0) --magnet_timer_;
 
     // 终极技能充能：时间被动积累
     if (ultimate_duration_ <= 0 && ultimate_charge_ < 1.0f) {
@@ -430,6 +470,7 @@ void Game::Update(Dir move_dir, bool shooting) {
     if (shooting && player_.shoot_cd <= 0) {
         FirePlayerBullet();
         player_.shoot_cd = cd;
+        g_audio.play(Sfx::Shoot);
     }
     if (player_.shoot_cd > 0) --player_.shoot_cd;
 
@@ -546,14 +587,21 @@ void Game::MoveEnemies() {
             e.shoot_timer = std::max(15, kEnemyShootInterval - level_ * 3);
         }
         ++e.speed_counter;
-        if (e.speed_counter >= enemy_speed_) { e.speed_counter = 0; ++e.y; }
+        if (e.speed_counter >= enemy_speed_) {
+            e.speed_counter = 0;
+            ++e.y;
+            // Zigzag: ~30% of enemies sway sideways
+            if ((e.hp > 90) && (frame_count_ % 6 < 3)) {
+                e.x += (e.x < kFieldWidth / 2) ? 1 : -1;
+                if (e.x < 2) e.x = 2;
+                if (e.x > kFieldWidth - 3) e.x = kFieldWidth - 3;
+            }
+        }
         if (e.y >= kFieldHeight - 1) {
             e.active = false;
-            if (--player_.lives <= 0) {
-                state_ = GameState::kGameOver;
-                if (score_ > high_score_) high_score_ = score_;
-                return;
-            }
+            if (shield_active_) { shield_active_ = false; continue; }
+            g_audio.play(Sfx::PlayerHit);
+            if (--player_.lives <= 0) { state_ = GameState::kGameOver; SaveHighScore(); return; }
         }
     }
 }
@@ -571,9 +619,14 @@ void Game::CheckCollisions() {
         hit:
             if (--e.hp <= 0) {
                 e.active = false;
-                score_ += kScorePerKill * level_;
+                int base_score = kScorePerKill * level_;
+                if (combo_timer_ > 0) ++combo_count_;
+                else combo_count_ = 1;
+                combo_timer_ = 90;
+                score_ += base_score * combo_count_;
                 ++total_kills_;
                 SpawnExplosion(e.x, e.y);
+                g_audio.play(Sfx::EnemyDie);
                 if (ultimate_charge_ < 1.0f && ultimate_duration_ <= 0) {
                     ultimate_charge_ += kUltChargePerKill;
                     if (ultimate_charge_ > 1.0f) ultimate_charge_ = 1.0f;
@@ -592,7 +645,9 @@ void Game::CheckCollisions() {
         if (IsPlayerCell(b.x, b.y)) {
             b.active = false;
             if (invincible_frames_ > 0) continue;
-            if (--player_.lives <= 0) { state_ = GameState::kGameOver; if (score_ > high_score_) high_score_ = score_; return; }
+            if (shield_active_) { shield_active_ = false; continue; }
+            g_audio.play(Sfx::PlayerHit);
+            if (--player_.lives <= 0) { state_ = GameState::kGameOver; SaveHighScore(); return; }
         }
     }
     // 敌机撞玩家
@@ -602,7 +657,9 @@ void Game::CheckCollisions() {
             if (IsPlayerCell(e.x + c.dx, e.y + c.dy)) {
                 e.active = false;
                 if (invincible_frames_ > 0) break;
-                if (--player_.lives <= 0) { state_ = GameState::kGameOver; if (score_ > high_score_) high_score_ = score_; return; }
+                if (shield_active_) { shield_active_ = false; break; }
+                g_audio.play(Sfx::PlayerHit);
+                if (--player_.lives <= 0) { state_ = GameState::kGameOver; SaveHighScore(); return; }
                 break;
             }
     }
@@ -611,9 +668,19 @@ void Game::CheckCollisions() {
         for (auto& c : kBossSprite)
             if (IsPlayerCell(boss_.x + c.dx, boss_.y + c.dy)) {
                 if (invincible_frames_ > 0) break;
-                if (--player_.lives <= 0) { state_ = GameState::kGameOver; if (score_ > high_score_) high_score_ = score_; return; }
+                if (shield_active_) { shield_active_ = false; break; }
+                g_audio.play(Sfx::PlayerHit);
+                if (--player_.lives <= 0) { state_ = GameState::kGameOver; SaveHighScore(); return; }
                 break;
             }
+    }
+}
+
+void Game::SaveHighScore() {
+    if (score_ > high_score_) {
+        high_score_ = score_;
+        std::ofstream hs("highscore.txt");
+        if (hs) hs << high_score_;
     }
 }
 
@@ -652,6 +719,9 @@ std::string Game::Render() const {
                 case PowerUpType::Health:   grid[p.y][p.x] = '+'; break;
                 case PowerUpType::FireRate: grid[p.y][p.x] = '~'; break;
                 case PowerUpType::DualShot: grid[p.y][p.x] = '='; break;
+                case PowerUpType::Shield:   grid[p.y][p.x] = 'O'; break;
+                case PowerUpType::Bomb:     grid[p.y][p.x] = '!'; break;
+                case PowerUpType::Magnet:   grid[p.y][p.x] = 'M'; break;
             }
         }
     }

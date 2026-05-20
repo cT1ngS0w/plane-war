@@ -13,6 +13,12 @@ FetchContent_Declare(
     GIT_TAG        v6.1.9
 )
 
+FetchContent_Declare(
+    miniaudio
+    GIT_REPOSITORY https://github.com/mackron/miniaudio.git
+    GIT_TAG        0.11.21
+)
+
 set(FETCHCONTENT_BASE_DIR ${CMAKE_BINARY_DIR}/_deps)
 
 FetchContent_GetProperties(ftxui)
@@ -21,15 +27,27 @@ if(NOT ftxui_POPULATED)
     add_subdirectory(${ftxui_SOURCE_DIR} ${ftxui_BINARY_DIR} EXCLUDE_FROM_ALL)
 endif()
 
+FetchContent_GetProperties(miniaudio)
+if(NOT miniaudio_POPULATED)
+    FetchContent_Populate(miniaudio)
+endif()
+
 add_executable(plane_war
     src/main.cpp
     src/game.cpp
+    src/audio.cpp
 )
 
-target_include_directories(plane_war PRIVATE src)
+target_include_directories(plane_war PRIVATE src ${miniaudio_SOURCE_DIR})
 
 target_link_libraries(plane_war PRIVATE
     ftxui::dom
     ftxui::screen
     ftxui::component
 )
+
+if(WIN32)
+    target_link_libraries(plane_war PRIVATE winmm)
+elseif(UNIX)
+    target_link_libraries(plane_war PRIVATE pthread dl m)
+endif()
