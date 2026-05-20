@@ -1,6 +1,5 @@
 #include "game.h"
 
-#include <iomanip>
 #include <atomic>
 #include <chrono>
 #include <mutex>
@@ -41,6 +40,7 @@ Color CellColor(CellType ct) {
                 case PlaneType::kBomber:  return Color(Color::Orange1);
                 case PlaneType::kStealth: return Color(Color::Magenta);
             }
+            break;
         }
         case CellType::Enemy:        return Color(Color::Red);
         case CellType::PlayerBullet: return Color(Color::Yellow);
@@ -53,6 +53,7 @@ Color CellColor(CellType ct) {
         case CellType::Wingman:      return Color(Color::MagentaLight);
         default:                     return Color(Color::Default);
     }
+    return Color(Color::Default);
 }
 
 // ===================================================================
@@ -114,7 +115,7 @@ Element BuildColoredField() {
                                 prev_type == 'B' ? CellType::Border :
                                 prev_type == 'O' ? CellType::Obstacle :
                                 prev_type == 'U' ? CellType::PowerUp :
-                                prev_type == 'Z' ? CellType::Boss : prev_type == 'X' ? CellType::Particle : CellType::Empty);
+                                prev_type == 'Z' ? CellType::Boss : prev_type == 'X' ? CellType::Particle : prev_type == 'W' ? CellType::Wingman : CellType::Empty);
             segments.push_back(text(run) | color(c));
         }
         lines.push_back(hbox(segments));
@@ -343,29 +344,31 @@ Element BuildSelectScreen() {
 Element BuildPlayingScreen() {
     std::lock_guard<std::recursive_mutex> lock(g_mutex);
 
+    constexpr int kMainW = kFieldWidth + 2;  // 36
+    auto blank = [&]{ return text(std::string(kMainW, ' ')); };
+
     std::ostringstream info;
-    info << "  Level " << g_game.level()
-         << "  |  Score " << g_game.score()
-         << "  |  Kills " << g_game.kills() << "/" << g_game.kills_needed();
+    info << "Lv" << g_game.level()
+         << " | " << g_game.score()
+         << " | " << g_game.kills() << "/" << g_game.kills_needed();
+    auto info_bar = text(info.str()) | bold | color(Color::Yellow);
 
-    auto info_bar = text(info.str()) | bold | color(Color::Yellow) | center;
-
-    // Boss 血条（游戏区上方）
-    Element boss_bar = text("");
+    // Boss 血条
+    Element boss_bar = blank();
     if (g_game.boss_alive()) {
         int hp = g_game.boss_hp(), mx = g_game.boss_max_hp();
-        int w = 28, bars = mx > 0 ? hp * w / mx : 0;
+        int w = 16, bars = mx > 0 ? hp * w / mx : 0;
         std::string bar;
         for (int i = 0; i < w; ++i) bar += (i < bars) ? '\xDB' : '\xB0';
         std::ostringstream ss;
-        ss << "  BOSS  [" << bar << "]  " << hp << "/" << mx;
-        boss_bar = text(ss.str()) | color(Color::Orange1) | bold | center;
+        ss << " BOSS [" << bar << "] " << hp << "/" << mx;
+        boss_bar = text(ss.str()) | color(Color::Orange1) | bold;
     } else if (g_game.boss_dying()) {
-        boss_bar = text("  *** BOSS DEFEATED! ***  ") | bold | color(Color::Yellow) | center | blink;
+        boss_bar = text(" *** BOSS DEFEATED! *** ") | bold | color(Color::Yellow) | blink;
     }
 
     // 终极技能条
-    Element ult_bar = text("");
+    Element ult_bar = blank();
     {
         int ult_dur = g_game.ultimate_duration();
         int inv = g_game.invincible();
@@ -374,42 +377,44 @@ Element BuildPlayingScreen() {
             int remaining = ult_dur > 0 ? ult_dur : inv;
             int sec = remaining / 30;
             std::ostringstream ss;
-            ss << "  \xE2\x9A\xA1 ULT ACTIVE: " << sec << "s  ";
-            ult_bar = text(ss.str()) | bold | color(Color::Yellow) | center;
+            ss << " \xE2\x9A\xA1 ULT " << sec << "s";
+            ult_bar = text(ss.str()) | bold | color(Color::Yellow);
         } else if (charge >= 1.0f) {
-            ult_bar = text("  [E] ULTIMATE READY!  ") | bold | color(Color::Yellow) | center;
+            ult_bar = text(" [E] ULTIMATE READY!") | bold | color(Color::Yellow);
         } else {
-            int w = 22;
+            int w = 14;
             int bars = static_cast<int>(charge * w);
             std::string bar;
             for (int i = 0; i < w; ++i) bar += (i < bars) ? '\xDB' : '\xB0';
             std::ostringstream ss;
-            ss << "  ULT [" << bar << "] " << static_cast<int>(charge * 100) << "%  ";
-            ult_bar = text(ss.str()) | color(Color::Magenta) | center;
+            ss << " ULT [" << bar << "] " << static_cast<int>(charge * 100) << "%";
+            ult_bar = text(ss.str()) | color(Color::Magenta);
         }
     }
 
-    auto field    = BuildColoredField();
-    auto side     = BuildSidePanel();
-
-    auto main = vbox({ info_bar, text(""), boss_bar, text(""), ult_bar, text(""), field }) | center;
-    return hbox({ main, separator() | color(Color::Blue), side }) | center;
+    auto field = BuildColoredField();
+    auto side  = BuildSidePanel();
+    auto main  = vbox({ info_bar, blank(), boss_bar, blank(), ult_bar, blank(), field })
+               | size(WIDTH, EQUAL, kMainW);
+    return hbox({ filler(), side, separator() | color(Color::Blue), main, filler() });
 }
 
 Element BuildPausedScreen() {
     std::lock_guard<std::recursive_mutex> lock(g_mutex);
 
     std::ostringstream info;
-    info << "  Level " << g_game.level() << "  |  Score " << g_game.score();
+    info << "Lv" << g_game.level() << " | " << g_game.score();
 
-    auto info_bar = text(info.str()) | bold | color(Color::Yellow) | center;
+    auto info_bar = text(info.str()) | bold | color(Color::Yellow);
     auto field    = BuildColoredField();
-    auto paused   = text("  ══  PAUSED  ══  ") | bold | color(Color::Yellow) | center | border;
-    auto hint     = text("  P : Resume    Q : Quit  ") | dim | center;
+    auto paused   = text("  ══  PAUSED  ══  ") | bold | color(Color::Yellow) | border;
+    auto hint     = text("  P : Resume    Q : Quit  ") | dim;
 
-    auto main = vbox({ info_bar, text(""), field, text(""), paused, hint });
+    constexpr int kMainW = kFieldWidth + 2;
+    auto blank = [&]{ return text(std::string(kMainW, ' ')); };
+    auto main = vbox({ info_bar, blank(), field, blank(), paused, hint }) | size(WIDTH, EQUAL, kMainW);
     auto side = BuildSidePanel();
-    return hbox({ main | center, separator() | color(Color::Blue), side }) | center;
+    return hbox({ filler(), side, separator() | color(Color::Blue), main, filler() });
 }
 
 Element BuildGameOverScreen() {
