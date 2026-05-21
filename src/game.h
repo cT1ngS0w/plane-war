@@ -59,10 +59,16 @@ inline constexpr SpriteCell kStealthSprite[] = {
 constexpr int kFighterSpriteCnt = sizeof(kFighterSprite) / sizeof(SpriteCell);
 constexpr int kBomberSpriteCnt  = sizeof(kBomberSprite)  / sizeof(SpriteCell);
 constexpr int kStealthSpriteCnt = sizeof(kStealthSprite) / sizeof(SpriteCell);
-// 敌机：3x2
+// 敌机：3x2 Normal
 inline constexpr SpriteCell kEnemySprite[] = {
     {-1,0,'\\'}, {0,0,'M'}, {1,0,'/'}, {0,1,'v'},
 };
+// 敌机：Diver 俯冲型 3x2
+inline constexpr SpriteCell kDiverSprite[] = {
+    { 0,-1,'V'}, {-1,0,'/'}, {0,0,'D'}, {1,0,'\\'},
+};
+constexpr int kEnemySpriteCnt  = sizeof(kEnemySprite)  / sizeof(SpriteCell);
+constexpr int kDiverSpriteCnt  = sizeof(kDiverSprite)  / sizeof(SpriteCell);
 // Boss：5x3 重型轰炸机
 inline constexpr SpriteCell kBossSprite[] = {
     {-2,0,'/'}, {-1,0,' '}, {0,0,'^'}, {1,0,' '}, {2,0,'\\'},
@@ -77,11 +83,15 @@ struct Bullet {
     bool from_player;
 };
 
+enum class EnemyType { Normal, Diver };
+
 struct Enemy {
     int x, y, hp = 2;
     bool active = false;
+    EnemyType etype = EnemyType::Normal;
     int shoot_timer = 0;
     int speed_counter = 0;
+    bool diving = false;
 };
 
 struct Player {
@@ -154,6 +164,8 @@ public:
     int   ultimate_duration() const { return ultimate_duration_; }
     int   invincible()        const { return invincible_frames_; }
     int   wingmen_active()    const { return wingmen_count_; }
+    bool  shield_up()         const { return shield_active_; }
+    int   magnet_left()       const { return magnet_timer_; }
     bool  ultimate_ready()    const { return ultimate_charge_ >= 1.0f; }
 
     void StartGame();

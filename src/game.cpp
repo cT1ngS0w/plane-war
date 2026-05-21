@@ -151,8 +151,13 @@ bool Game::IsPlayerCell(int x, int y) const {
     return false;
 }
 bool Game::IsEnemyCell(const Enemy& e, int x, int y) const {
-    for (auto& c : kEnemySprite)
-        if (e.x + c.dx == x && e.y + c.dy == y) return true;
+    if (e.etype == EnemyType::Diver) {
+        for (auto& c : kDiverSprite)
+            if (e.x + c.dx == x && e.y + c.dy == y) return true;
+    } else {
+        for (auto& c : kEnemySprite)
+            if (e.x + c.dx == x && e.y + c.dy == y) return true;
+    }
     return false;
 }
 bool Game::IsBossCell(int x, int y) const {
@@ -239,8 +244,10 @@ void Game::CheckPowerUpCollect() {
                     shield_active_ = true;
                     break;
                 case PowerUpType::Bomb:
+                    for (int i = 0; i < 30; ++i)
+                        SpawnExplosion(2 + rand() % (kFieldWidth - 4), 2 + rand() % (kFieldHeight - 4));
                     for (auto& e : enemies_) {
-                        if (e.active) { score_ += kScorePerKill * level_; ++total_kills_; SpawnExplosion(e.x, e.y); e.active = false; }
+                        if (e.active) { score_ += kScorePerKill * level_; ++total_kills_; e.active = false; }
                     }
                     for (auto& b : bullets_)
                         if (b.active && !b.from_player) b.active = false;
@@ -553,11 +560,14 @@ void Game::SpawnEnemy() {
     int hp = (level_ >= 5) ? 3 : ((level_ >= 3) ? 2 : 1);
     int x = 1 + (frame_count_ * 7 + rand() % 11) % (kFieldWidth - 2);
 
+    EnemyType et = (level_ >= 2 && rand() % 5 == 0) ? EnemyType::Diver : EnemyType::Normal;
+    Enemy en{x, -1, hp, true, et, kEnemyShootInterval + rand() % 20, 0, false};
+
     for (auto& e : enemies_) {
-        if (!e.active) { e = Enemy{x, -1, hp, true, kEnemyShootInterval + rand() % 20, 0}; return; }
+        if (!e.active) { e = en; return; }
     }
     if (static_cast<int>(enemies_.size()) < kMaxEnemies)
-        enemies_.push_back(Enemy{x, -1, hp, true, kEnemyShootInterval + rand() % 20, 0});
+        enemies_.push_back(en);
 }
 
 void Game::SpawnEnemyBullet(const Enemy& e) {
@@ -587,11 +597,15 @@ void Game::MoveEnemies() {
             e.shoot_timer = std::max(15, kEnemyShootInterval - level_ * 3);
         }
         ++e.speed_counter;
-        if (e.speed_counter >= enemy_speed_) {
+        int spd = enemy_speed_;
+        if (e.etype == EnemyType::Diver) {
+            if (e.y > kFieldHeight / 2 && !e.diving) { e.diving = true; }
+            if (e.diving) spd = std::max(2, enemy_speed_ / 3);
+        }
+        if (e.speed_counter >= spd) {
             e.speed_counter = 0;
             ++e.y;
-            // Zigzag: ~30% of enemies sway sideways
-            if ((e.hp > 90) && (frame_count_ % 6 < 3)) {
+            if (e.etype == EnemyType::Normal && (frame_count_ % 6 < 3)) {
                 e.x += (e.x < kFieldWidth / 2) ? 1 : -1;
                 if (e.x < 2) e.x = 2;
                 if (e.x > kFieldWidth - 3) e.x = kFieldWidth - 3;
@@ -613,8 +627,12 @@ void Game::CheckCollisions() {
         if (!b.active || !b.from_player) continue;
         for (auto& e : enemies_) {
             if (!e.active) continue;
-            for (auto& c : kEnemySprite)
-                if (b.x == e.x + c.dx && b.y == e.y + c.dy) { b.active = false; goto hit; }
+            const SpriteCell* spr;
+            int cnt;
+            if (e.etype == EnemyType::Diver) { spr = kDiverSprite; cnt = kDiverSpriteCnt; }
+            else                             { spr = kEnemySprite;  cnt = kEnemySpriteCnt; }
+            for (int i = 0; i < cnt; ++i)
+                if (b.x == e.x + spr[i].dx && b.y == e.y + spr[i].dy) { b.active = false; goto hit; }
             continue;
         hit:
             if (--e.hp <= 0) {
@@ -653,8 +671,12 @@ void Game::CheckCollisions() {
     // 敌机撞玩家
     for (auto& e : enemies_) {
         if (!e.active) continue;
-        for (auto& c : kEnemySprite)
-            if (IsPlayerCell(e.x + c.dx, e.y + c.dy)) {
+        const SpriteCell* spr;
+        int cnt;
+        if (e.etype == EnemyType::Diver) { spr = kDiverSprite; cnt = kDiverSpriteCnt; }
+        else                             { spr = kEnemySprite;  cnt = kEnemySpriteCnt; }
+        for (int i = 0; i < cnt; ++i)
+            if (IsPlayerCell(e.x + spr[i].dx, e.y + spr[i].dy)) {
                 e.active = false;
                 if (invincible_frames_ > 0) break;
                 if (shield_active_) { shield_active_ = false; break; }
@@ -750,10 +772,14 @@ std::string Game::Render() const {
     // 敌机（画在障碍物上面）
     for (auto& e : enemies_) {
         if (!e.active) continue;
-        for (auto& c : kEnemySprite) {
-            int cx = e.x + c.dx, cy = e.y + c.dy;
+        const SpriteCell* spr;
+        int cnt;
+        if (e.etype == EnemyType::Diver) { spr = kDiverSprite; cnt = kDiverSpriteCnt; }
+        else                             { spr = kEnemySprite;  cnt = kEnemySpriteCnt; }
+        for (int i = 0; i < cnt; ++i) {
+            int cx = e.x + spr[i].dx, cy = e.y + spr[i].dy;
             if (cx >= 0 && cx < kFieldWidth && cy >= 0 && cy < kFieldHeight)
-                grid[cy][cx] = c.ch;
+                grid[cy][cx] = spr[i].ch;
         }
     }
 
@@ -776,6 +802,13 @@ std::string Game::Render() const {
 
     // 玩家（最上层）
     if (player_.lives > 0) {
+        if (shield_active_) {
+            for (int dx = -2; dx <= 2; ++dx) {
+                int sx = player_.x + dx, sy = player_.y - 1;
+                if (sx >= 0 && sx < kFieldWidth && sy >= 0 && sy < kFieldHeight && grid[sy][sx] == ' ')
+                    grid[sy][sx] = '.';
+            }
+        }
         auto* spr = PlayerSprite();
         int cnt = PlayerSpriteCount();
         for (int i = 0; i < cnt; ++i) {

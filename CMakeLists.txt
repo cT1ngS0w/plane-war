@@ -44,6 +44,7 @@ target_link_libraries(plane_war PRIVATE
     ftxui::dom
     ftxui::screen
     ftxui::component
+    -static-libgcc -static-libstdc++
 )
 
 if(WIN32)

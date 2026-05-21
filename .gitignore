@@ -5,3 +5,5 @@ build/
 _deps/
 compile_commands.json
 .claude/
+.agents/
+skills-lock.json

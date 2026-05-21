@@ -1,4 +1,5 @@
 #include "game.h"
+#include "audio.h"
 
 #include <atomic>
 #include <chrono>
@@ -306,44 +307,105 @@ Element BuildMenuScreen() {
 Element BuildSelectScreen() {
     Color themes[3] = {Color::Cyan, Color::Orange1, Color::Magenta};
 
-    auto arrow_r = [](bool sel) { return std::string(sel ? " \xE2\x96\xB6" : "  "); };
-    auto arrow_l = [](bool sel) { return std::string(sel ? "\xE2\x97\x80 " : "  "); };
+    auto hline = []{ std::string s; for(int i=0;i<36;++i) s += "\xE2\x95\x90"; return s; };
+    auto hdr = text("  \xE2\x95\x94" + hline() + "\xE2\x95\x97  ") | color(Color::Yellow) | bold;
+    auto ftr = text("  \xE2\x95\x9A" + hline() + "\xE2\x95\x9D  ") | color(Color::Yellow) | bold;
+
+    auto title_row = hbox({
+        text("\xE2\x95\x91  ") | color(Color::Yellow) | bold,
+        text(">>  SELECT YOUR PLANE  <<") | bold | color(Color::Yellow) | center,
+        text("  \xE2\x95\x91") | color(Color::Yellow) | bold,
+    });
+
+    auto hint_row = hbox({
+        text("\xE2\x95\x91  ") | color(Color::Yellow) | bold,
+        text("  W/S : switch    ENTER : confirm    Q : back  ") | dim,
+        text("  \xE2\x95\x91") | color(Color::Yellow) | bold,
+    });
 
     std::vector<Element> rows;
     rows.push_back(text(""));
-    rows.push_back(text("  >>  SELECT YOUR PLANE  <<") | bold | color(Color::Yellow));
-    rows.push_back(text(""));
-    rows.push_back(text("  W / S : switch    ENTER : confirm    Q : back") | dim);
-    rows.push_back(text(""));
-    rows.push_back(text(""));
+    rows.push_back(hdr);
+    rows.push_back(hbox({
+        text("\xE2\x95\x91") | color(Color::Yellow) | bold,
+        text(std::string(38, ' ')),
+        text("\xE2\x95\x91") | color(Color::Yellow) | bold,
+    }));
+    rows.push_back(title_row);
+    rows.push_back(hint_row);
+    rows.push_back(hbox({
+        text("\xE2\x95\x91") | color(Color::Yellow) | bold,
+        text(std::string(38, ' ')),
+        text("\xE2\x95\x91") | color(Color::Yellow) | bold,
+    }));
 
     for (int i = 0; i < 3; ++i) {
         const char* sprites_top[3] = {"  ^  ", "[#B#]", "  V  "};
         const char* sprites_bot[3] = {" /F\\ ", "/===\\", " <S> "};
-        const char* names[3] = {"Valkyrie", "Fortress", "Phantom"};
-        const char* cnames[3] = {"\xE8\xBF\x85\xE9\xA3\x8E\xE6\x88\x98\xE6\x9C\xBA",
-                                  "\xE5\xA0\xA1\xE5\x9E\x92\xE9\x87\x8D\xE8\x88\xB0",
-                                  "\xE6\x9A\x97\xE5\xBD\xB1\xE6\x88\x98\xE6\x9C\xBA"};
+        const char* names[3]     = {"Valkyrie", "Fortress", "Phantom"};
+        const char* cnames[3]    = {"\xE8\xBF\x85\xE9\xA3\x8E\xE6\x88\x98\xE6\x9C\xBA",
+                                     "\xE5\xA0\xA1\xE5\x9E\x92\xE9\x87\x8D\xE8\x88\xB0",
+                                     "\xE6\x9A\x97\xE5\xBD\xB1\xE6\x88\x98\xE6\x9C\xBA"};
         const char* descs[3] = {
             "\xE2\x80\xA2 Agile \xE2\x80\xA2 Speedy  \xE2\x9A\xA1 Bullet Storm",
             "\xE2\x80\xA2 Armored \xE2\x80\xA2 Tank   \xE2\x9A\xA1 Iron Shield",
             "\xE2\x80\xA2 Tactical \xE2\x80\xA2 Drones \xE2\x9A\xA1 Wingmen",
         };
+        const char* ult_names[3] = {"Bullet Storm 3s", "Iron Shield 4s", "Wingmen 10s"};
 
         bool sel = (i == g_select_idx);
-        std::string line1 = arrow_r(sel) + sprites_top[i] + arrow_l(sel)
-                          + "  " + names[i] + "  " + cnames[i] + "  " + descs[i];
-        std::string line2 = arrow_r(sel) + sprites_bot[i] + arrow_l(sel);
+        Color c = sel ? themes[i] : Color::Grey50;
+        auto decor = [](bool s) { return s ? bold : dim; };
 
-        Element e1 = text(line1) | color(sel ? themes[i] : Color::Grey50);
-        Element e2 = text(line2) | color(sel ? themes[i] : Color::Grey50);
-        if (sel) { e1 = e1 | bold; e2 = e2 | bold; }
-        else     { e1 = e1 | dim;  e2 = e2 | dim;  }
+        int content_w = 38;
+        auto pad = [](int n) { return std::string(std::max(0, n), ' '); };
+        auto sprite_line = [&](const std::string& sprite, const std::string& label) {
+            std::string mark = sel ? " \xE2\x96\xB6 " : "   ";
+            std::string rmark = sel ? " \xE2\x97\x80" : "   ";
+            std::string inner = mark + sprite + rmark + "  " + label;
+            int padding = content_w - static_cast<int>(inner.size());
+            std::string border_char = sel ? "\xE2\x95\x91" : "\xE2\x94\x82";
+            Color border_c = sel ? themes[i] : Color::Grey30;
 
-        rows.push_back(e1);
-        rows.push_back(e2);
-        rows.push_back(text(""));
+            return hbox({
+                text("\xE2\x95\x91 ") | color(Color::Yellow) | bold,
+                text(border_char + " " + inner + pad(padding) + " " + border_char) | color(border_c) | (sel ? bold : dim),
+                text(" \xE2\x95\x91") | color(Color::Yellow) | bold,
+            });
+        };
+
+        rows.push_back(sprite_line(sprites_top[i], names[i]));
+        rows.push_back(sprite_line(sprites_bot[i], cnames[i]));
+
+        {
+            std::string info = "   " + std::string(descs[i]);
+            int padding = content_w - static_cast<int>(info.size());
+            std::string border_char = sel ? "\xE2\x95\x91" : "\xE2\x94\x82";
+            Color border_c = sel ? themes[i] : Color::Grey30;
+            rows.push_back(hbox({
+                text("\xE2\x95\x91 ") | color(Color::Yellow) | bold,
+                text(border_char + " " + info + pad(padding) + " " + border_char) | color(border_c) | (sel ? bold : dim),
+                text(" \xE2\x95\x91") | color(Color::Yellow) | bold,
+            }));
+        }
+
+        if (i < 2) {
+            std::string border_char = sel ? "\xE2\x95\x91" : "\xE2\x94\x82";
+            Color border_c = sel ? themes[i] : Color::Grey30;
+            rows.push_back(hbox({
+                text("\xE2\x95\x91 ") | color(Color::Yellow) | bold,
+                text(border_char + pad(content_w) + border_char) | color(border_c) | (sel ? bold : dim),
+                text(" \xE2\x95\x91") | color(Color::Yellow) | bold,
+            }));
+        }
     }
+
+    rows.push_back(hbox({
+        text("\xE2\x95\x91") | color(Color::Yellow) | bold,
+        text(std::string(38, ' ')),
+        text("\xE2\x95\x91") | color(Color::Yellow) | bold,
+    }));
+    rows.push_back(ftr);
 
     return vbox(std::move(rows));
 }
@@ -357,10 +419,13 @@ Element BuildPlayingScreen() {
     std::ostringstream info;
     info << "Lv" << g_game.level()
          << " | " << g_game.score();
-    if (g_game.combo() > 1)
-        info << " x" << g_game.combo();
-    info << " | " << g_game.kills() << "/" << g_game.kills_needed();
     auto info_bar = text(info.str()) | bold | color(Color::Yellow);
+    if (g_game.combo() > 2) {
+        std::ostringstream cb;
+        cb << " COMBO x" << g_game.combo() << "! ";
+        info_bar = hbox({ info_bar, text(cb.str()) | bold | color(Color::RGB(255,80,0)) });
+    }
+    info_bar = hbox({ info_bar, text(" | " + std::to_string(g_game.kills()) + "/" + std::to_string(g_game.kills_needed())) });
 
     // Boss 血条
     Element boss_bar = blank();
@@ -505,6 +570,7 @@ Element BuildUI() {
 
 // ===================================================================
 int main() {
+    g_audio.init();
     auto screen = ScreenInteractive::Fullscreen();
 
     auto renderer  = Renderer([&] { return BuildUI(); });

@@ -9,6 +9,7 @@ public:
     AudioManager(const AudioManager&) = delete;
     AudioManager& operator=(const AudioManager&) = delete;
 
+    void init();
     void play(Sfx s);
     void set_muted(bool m) { muted_ = m; }
     bool muted() const { return muted_; }

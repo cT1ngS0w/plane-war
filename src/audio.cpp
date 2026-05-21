@@ -11,11 +11,11 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-AudioManager g_audio;
+static ma_engine* g_engine = nullptr;
+static ma_sound*  g_sounds = nullptr;
+static bool       g_loaded = false;
 
-static ma_engine g_engine;
-static ma_sound  g_sounds[static_cast<int>(Sfx::Count)];
-static bool      g_loaded = false;
+AudioManager g_audio;
 
 namespace {
 
@@ -99,7 +99,10 @@ std::vector<float> gen_sweep(float f0, float f1, float duration, float sample_ra
 
 } // namespace
 
-AudioManager::AudioManager() {
+AudioManager::AudioManager() {}
+
+void AudioManager::init() {
+    if (initialized_) return;
     constexpr int SR = 22050;
 
     struct SfxDef { Sfx id; const char* name; std::vector<float> (*gen)(); };
@@ -113,12 +116,17 @@ AudioManager::AudioManager() {
         {Sfx::PlayerHit,  "sfx_hit.wav",        []{ return gen_tone(120, 0.2f, SR); }},
     };
 
-    ma_engine_init(NULL, &g_engine);
+    g_engine = new ma_engine{};
+    g_sounds = new ma_sound[static_cast<int>(Sfx::Count)]{};
+
+    ma_result mr = ma_engine_init(NULL, g_engine);
+    if (mr != MA_SUCCESS) return;
 
     for (auto& d : defs) {
         auto wav = make_wav(d.gen(), SR);
         write_temp(d.name, wav);
-        ma_sound_init_from_file(&g_engine, d.name, 0, NULL, NULL, &g_sounds[static_cast<int>(d.id)]);
+        mr = ma_sound_init_from_file(g_engine, d.name, 0, NULL, NULL, &g_sounds[static_cast<int>(d.id)]);
+        if (mr != MA_SUCCESS) continue;
     }
 
     g_loaded = true;
@@ -129,7 +137,9 @@ AudioManager::~AudioManager() {
     if (!initialized_) return;
     for (int i = 0; i < static_cast<int>(Sfx::Count); ++i)
         ma_sound_uninit(&g_sounds[i]);
-    ma_engine_uninit(&g_engine);
+    ma_engine_uninit(g_engine);
+    delete[] g_sounds;
+    delete g_engine;
 }
 
 void AudioManager::play(Sfx s) {
