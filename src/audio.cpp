@@ -107,13 +107,13 @@ void AudioManager::init() {
 
     struct SfxDef { Sfx id; const char* name; std::vector<float> (*gen)(); };
     SfxDef defs[] = {
-        {Sfx::Shoot,      "sfx_shoot.wav",      []{ return gen_tone(800, 0.08f, SR); }},
-        {Sfx::Explosion,  "sfx_explosion.wav",  []{ return gen_noise(0.3f, SR); }},
-        {Sfx::PowerUp,    "sfx_powerup.wav",    []{ return gen_sweep(400, 1200, 0.2f, SR); }},
-        {Sfx::BossAlert,  "sfx_boss.wav",       []{ return gen_sweep(100, 60, 0.6f, SR); }},
-        {Sfx::Ultimate,   "sfx_ultimate.wav",   []{ return gen_sweep(200, 1600, 0.5f, SR); }},
-        {Sfx::EnemyDie,   "sfx_enemy_die.wav",  []{ return gen_tone(300, 0.1f, SR); }},
-        {Sfx::PlayerHit,  "sfx_hit.wav",        []{ return gen_tone(120, 0.2f, SR); }},
+        {Sfx::Shoot,      "assets/sfx/sfx_shoot.wav",      []{ return gen_tone(800, 0.08f, SR); }},
+        {Sfx::Explosion,  "assets/sfx/sfx_explosion.wav",  []{ return gen_noise(0.3f, SR); }},
+        {Sfx::PowerUp,    "assets/sfx/sfx_powerup.wav",    []{ return gen_sweep(400, 1200, 0.2f, SR); }},
+        {Sfx::BossAlert,  "assets/sfx/sfx_boss.wav",       []{ return gen_sweep(100, 60, 0.6f, SR); }},
+        {Sfx::Ultimate,   "assets/sfx/sfx_ultimate.wav",   []{ return gen_sweep(200, 1600, 0.5f, SR); }},
+        {Sfx::EnemyDie,   "assets/sfx/sfx_enemy_die.wav",  []{ return gen_tone(300, 0.1f, SR); }},
+        {Sfx::PlayerHit,  "assets/sfx/sfx_hit.wav",        []{ return gen_tone(120, 0.2f, SR); }},
     };
 
     g_engine = new ma_engine{};

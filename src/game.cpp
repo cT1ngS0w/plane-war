@@ -20,7 +20,7 @@ Game::Game() {
     obstacles_.reserve(kMaxObstacles);
     wingmen_.reserve(kMaxWingmen);
     // 加载最高分
-    std::ifstream hs("highscore.txt");
+    std::ifstream hs("data/highscore.txt");
     if (hs) hs >> high_score_;
 }
 
@@ -701,7 +701,7 @@ void Game::CheckCollisions() {
 void Game::SaveHighScore() {
     if (score_ > high_score_) {
         high_score_ = score_;
-        std::ofstream hs("highscore.txt");
+        std::ofstream hs("data/highscore.txt");
         if (hs) hs << high_score_;
     }
 }

@@ -175,14 +175,16 @@ cmake --build . --config Release -j8
 plane-war/
 ├── CMakeLists.txt      # CMake 构建配置（FTXUI + miniaudio 依赖）
 ├── README.md           # 项目说明文档
-├── highscore.txt       # 最高分记录
-├── sfx_*.wav           # 程序化生成的音效文件（7 个）
-└── src/
-    ├── main.cpp        # 入口：FTXUI 渲染、事件处理、UI 构建、游戏循环
-    ├── game.h          # 常量定义、精灵数据、实体结构体、Game 类声明
-    ├── game.cpp        # 游戏逻辑：移动、碰撞、Boss AI、粒子系统、道具
-    ├── audio.h         # 音频管理器声明（Sfx 枚举、AudioManager 类）
-    └── audio.cpp       # 音频实现：miniaudio 引擎、WAV 生成、音效播放
+├── assets/
+│   └── sfx/            # 程序化生成的音效文件（7 个 .wav）
+├── data/
+│   └── highscore.txt   # 最高分记录
+├── src/
+│   ├── main.cpp        # 入口：FTXUI 渲染、事件处理、UI 构建、游戏循环
+│   ├── game.h          # 常量定义、精灵数据、实体结构体、Game 类声明
+│   ├── game.cpp        # 游戏逻辑：移动、碰撞、Boss AI、粒子系统、道具
+│   ├── audio.h         # 音频管理器声明（Sfx 枚举、AudioManager 类）
+│   └── audio.cpp       # 音频实现：miniaudio 引擎、WAV 生成、音效播放
 ```
 
 ## 开源协议
