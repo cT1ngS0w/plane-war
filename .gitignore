@@ -2,6 +2,8 @@ build/
 *.exe
 *.o
 *.obj
+# Allow the release exe at project root
+!plane_war.exe
 _deps/
 compile_commands.json
 .claude/
