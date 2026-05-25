@@ -161,17 +161,13 @@ cmake --build . --config Release -j8
 
 ```
 plane-war/
-├── plane_war.exe                 # 预编译可执行文件，下载即玩
-├── CMakeLists.txt                # CMake 构建配置
-├── README.md                     # 项目说明
-├── .github/workflows/            # CI/CD 自动构建发布
-├── assets/sfx/                   # 音效文件（7 个 .wav）
-├── data/highscore.txt            # 最高分记录
+├── plane_war.exe                 # 游戏可执行文件
+├── assets/sfx/                   # 音效文件
+├── data/highscore.txt            # 最高分存档
 └── src/
-    ├── main.cpp                  # 入口：FTXUI 渲染、事件处理、UI 构建
-    ├── game.h / game.cpp         # 游戏逻辑：移动、碰撞、AI、粒子、道具
-    ├── audio.h / audio.cpp       # 音频：miniaudio 引擎、WAV 生成、音效
-    └── path_helper.h             # 可执行文件路径辅助
+    ├── main.cpp                  # 游戏入口、画面渲染、按键处理
+    ├── game.h / game.cpp         # 战机、敌机、Boss、子弹、道具、粒子
+    └── audio.h / audio.cpp       # 射击、爆炸等音效生成与播放
 ```
 
 ## 开源协议
