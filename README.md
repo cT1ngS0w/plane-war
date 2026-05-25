@@ -120,39 +120,23 @@
   ULT [████████░░] 67%
 ```
 
+## 下载
+
+从 [Releases](https://github.com/cT1ngS0w/plane-war/releases) 页面下载最新版本：
+
+1. 下载 `plane-war-windows.zip`
+2. 解压到任意目录
+3. 双击 `plane_war.exe` 运行
+
 ## 构建与运行
 
 ### 依赖
 
 - C++17 编译器（GCC、Clang 或 MSVC）
 - CMake >= 3.14
-- [FTXUI](https://github.com/ArthurSonzogni/FTXUI) 库
-- [miniaudio](https://github.com/mackron/miniaudio) 库（已通过 FetchContent 自动获取）
+- Git（CMake 构建时会自动下载 FTXUI 和 miniaudio 依赖）
 
-### 安装 FTXUI
-
-**Ubuntu / Debian:**
-```bash
-sudo apt install cmake g++
-git clone https://github.com/ArthurSonzogni/FTXUI.git
-cd FTXUI
-mkdir build && cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release
-make -j$(nproc)
-sudo make install
-```
-
-**macOS:**
-```bash
-brew install ftxui
-```
-
-**Windows (vcpkg):**
-```bash
-vcpkg install ftxui
-```
-
-### 构建项目
+### 构建
 
 ```bash
 git clone https://github.com/cT1ngS0w/plane-war.git
@@ -162,29 +146,35 @@ cmake .. -DCMAKE_BUILD_TYPE=Release
 cmake --build . --config Release -j8
 ```
 
+> 构建完成后，`assets/` 和 `data/` 会自动复制到可执行文件所在目录。
+
 ### 运行
 
 ```bash
-./plane_war        # Linux / macOS
-.\build\Release\plane_war.exe   # Windows
+# 在 build 目录下直接运行
+./plane_war               # Linux / macOS
+.\Release\plane_war.exe   # Windows (MSVC)
+.\plane_war.exe           # Windows (MinGW)
 ```
 
 ## 项目结构
 
 ```
 plane-war/
-├── CMakeLists.txt      # CMake 构建配置（FTXUI + miniaudio 依赖）
-├── README.md           # 项目说明文档
+├── CMakeLists.txt              # CMake 构建配置
+├── README.md                   # 项目说明文档
+├── .github/workflows/          # CI/CD 自动构建发布
 ├── assets/
-│   └── sfx/            # 程序化生成的音效文件（7 个 .wav）
+│   └── sfx/                    # 音效文件（7 个 .wav，首次运行自动生成）
 ├── data/
-│   └── highscore.txt   # 最高分记录
+│   └── highscore.txt           # 最高分记录
 ├── src/
-│   ├── main.cpp        # 入口：FTXUI 渲染、事件处理、UI 构建、游戏循环
-│   ├── game.h          # 常量定义、精灵数据、实体结构体、Game 类声明
-│   ├── game.cpp        # 游戏逻辑：移动、碰撞、Boss AI、粒子系统、道具
-│   ├── audio.h         # 音频管理器声明（Sfx 枚举、AudioManager 类）
-│   └── audio.cpp       # 音频实现：miniaudio 引擎、WAV 生成、音效播放
+│   ├── main.cpp                # 入口：FTXUI 渲染、事件处理、UI 构建、游戏循环
+│   ├── game.h                  # 常量定义、精灵数据、实体结构体、Game 类声明
+│   ├── game.cpp                # 游戏逻辑：移动、碰撞、Boss AI、粒子系统、道具
+│   ├── audio.h                 # 音频管理器声明（Sfx 枚举、AudioManager 类）
+│   ├── audio.cpp               # 音频实现：miniaudio 引擎、WAV 生成、音效播放
+│   └── path_helper.h           # 可执行文件路径辅助函数
 ```
 
 ## 开源协议

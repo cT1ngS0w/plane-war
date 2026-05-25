@@ -7,3 +7,5 @@ compile_commands.json
 .claude/
 .agents/
 skills-lock.json
+release_pkg/
+*.zip

@@ -1,0 +1,59 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure CMake
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release -j $env:NUMBER_OF_PROCESSORS
+
+      - name: Package
+        shell: powershell
+        run: |
+          $pkg = "plane-war"
+          New-Item -ItemType Directory -Force $pkg
+          Copy-Item "build\Release\plane_war.exe" "$pkg\"
+          Copy-Item "assets" "$pkg\assets\" -Recurse -Force
+          Copy-Item "data" "$pkg\data\" -Recurse -Force
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: plane-war-windows
+          path: plane-war/
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build-windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: plane-war-windows
+          path: plane-war
+
+      - name: Create ZIP
+        run: |
+          cd plane-war
+          zip -r ../plane-war-windows.zip .
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: plane-war-windows.zip
+          generate_release_notes: true

@@ -1,10 +1,12 @@
 #include "game.h"
 #include "audio.h"
+#include "path_helper.h"
 
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <ctime>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 
@@ -20,7 +22,8 @@ Game::Game() {
     obstacles_.reserve(kMaxObstacles);
     wingmen_.reserve(kMaxWingmen);
     // 加载最高分
-    std::ifstream hs("data/highscore.txt");
+    std::string hs_path = get_exe_dir() + "/data/highscore.txt";
+    std::ifstream hs(hs_path);
     if (hs) hs >> high_score_;
 }
 
@@ -701,7 +704,10 @@ void Game::CheckCollisions() {
 void Game::SaveHighScore() {
     if (score_ > high_score_) {
         high_score_ = score_;
-        std::ofstream hs("data/highscore.txt");
+        std::string data_dir = get_exe_dir() + "/data";
+        std::error_code ec;
+        std::filesystem::create_directories(data_dir, ec);
+        std::ofstream hs(data_dir + "/highscore.txt");
         if (hs) hs << high_score_;
     }
 }

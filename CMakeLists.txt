@@ -44,11 +44,23 @@ target_link_libraries(plane_war PRIVATE
     ftxui::dom
     ftxui::screen
     ftxui::component
-    -static-libgcc -static-libstdc++
 )
+
+# Static link libgcc/libstdc++ on MinGW (reduces DLL dependencies at runtime)
+if(MINGW)
+    target_link_libraries(plane_war PRIVATE -static-libgcc -static-libstdc++)
+endif()
 
 if(WIN32)
     target_link_libraries(plane_war PRIVATE winmm)
 elseif(UNIX)
     target_link_libraries(plane_war PRIVATE pthread dl m)
 endif()
+
+# Copy assets and data to build directory after build
+add_custom_command(TARGET plane_war POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_SOURCE_DIR}/assets" "$<TARGET_FILE_DIR:plane_war>/assets"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_SOURCE_DIR}/data" "$<TARGET_FILE_DIR:plane_war>/data"
+    COMMENT "Copying assets and data to build directory...")
