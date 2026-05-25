@@ -1,13 +1,16 @@
 build/
+_deps/
 *.exe
 *.o
 *.obj
+*.zip
 # Allow the release exe at project root
 !plane_war.exe
-_deps/
-compile_commands.json
+
+# IDE / tools
+.vscode/
 .claude/
 .agents/
+compile_commands.json
 skills-lock.json
 release_pkg/
-*.zip
